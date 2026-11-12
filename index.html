@@ -1,0 +1,2910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crescent Field</title>
+<meta name="theme-color" content="#161616">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<style>
+  :root {
+    color-scheme: dark;
+    --panel: #161616;
+    --raised: #222222;
+    --line: #303030;
+    --text: #ececea;
+    --muted: #9b9b97;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    height: 100dvh;
+    overflow: hidden;
+    background: var(--panel);
+    color: var(--text);
+    font: 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  button, input { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+
+  /* Stage */
+  #stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #0b0b0b; }
+  #frame { position: absolute; overflow: hidden; }
+  #frame canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #stage.dropping #frame { outline: 2px dashed #fff; outline-offset: -6px; }
+  #toolbar {
+    position: absolute;
+    left: 50%;
+    bottom: 14px;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    max-width: calc(100% - 16px);
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: rgba(22, 22, 22, .94);
+    white-space: nowrap;
+  }
+  #toolbar .tool-label { padding: 0 4px; color: var(--muted); font-size: 12px; }
+  #toolbar .sep { width: 1px; height: 18px; margin: 0 6px; background: var(--line); }
+  #toolbar button {
+    min-width: 28px;
+    height: 28px;
+    padding: 0 6px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    cursor: pointer;
+  }
+  #toolbar button:hover { background: var(--raised); border-color: var(--line); }
+  #toolbar input[type=range] { width: 110px; flex: 0 1 110px; min-width: 50px; }
+  #zoom-fit { width: 52px; font: 12px var(--mono); }
+  #busy {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: none;
+    place-items: center;
+    background: rgba(0, 0, 0, .6);
+  }
+  #busy.on { display: grid; }
+  #busy > div {
+    width: min(340px, calc(100vw - 32px));
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+  }
+  #busy progress { display: block; width: 100%; height: 6px; margin: 12px 0; accent-color: #fff; }
+  #export-go { width: 100%; margin-top: 14px; }
+  #still-info, #export-info, #upload-status { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+  #upload-status.error, #export-info.error, #still-info.error { color: #ff8a80; }
+  .upload-row { display: flex; gap: 6px; margin-top: 8px; }
+  .upload-row .btn { flex: 1; }
+  .mask-icon { display: block; width: 100%; height: 100%; background: currentColor; -webkit-mask: center / contain no-repeat; mask: center / contain no-repeat; }
+  .layer-main .mask-icon { width: 14px; height: 14px; flex: none; }
+  #all-host { margin-top: 12px; }
+  #overlay { touch-action: none; }
+
+  /* Panel */
+  #panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-left: 1px solid var(--line);
+    background: var(--panel);
+  }
+  #panel header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  h1 { margin: 0; font-size: 13px; font-weight: 600; }
+  #scroll { flex: 1; min-height: 0; overflow-y: auto; }
+  section { padding: 14px 16px 16px; border-bottom: 1px solid var(--line); }
+  h2 {
+    margin: 0 0 12px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .section-head h2 { margin: 0; }
+  #panel footer {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+    padding: 10px 16px;
+    border-top: 1px solid var(--line);
+  }
+
+  /* Buttons */
+  .btn {
+    min-height: 30px;
+    padding: 4px 10px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--raised);
+    cursor: pointer;
+  }
+  .btn:hover { border-color: #5a5a5a; }
+  .btn[disabled] { opacity: .45; cursor: default; }
+  .btn.quiet { background: transparent; color: var(--muted); }
+  .btn.quiet:hover { color: var(--text); }
+  .btn.small { min-height: 26px; padding: 2px 8px; font-size: 12px; }
+  .btn[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: #111; }
+
+  /* Sliders */
+  .ctl { margin-top: 11px; }
+  .ctl:first-child { margin-top: 0; }
+  .ctl-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .ctl label, .seg-label { color: var(--muted); }
+  .num { display: flex; align-items: baseline; gap: 2px; color: var(--muted); font: 12px var(--mono); }
+  .num input {
+    width: 44px;
+    padding: 1px 2px;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text);
+    font: 12px var(--mono);
+    text-align: right;
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+  .num input::-webkit-inner-spin-button { display: none; }
+  .num input:hover { border-color: var(--line); }
+  .num input:focus { background: var(--raised); }
+  .num .unit { min-width: 16px; }
+
+  input[type=range] {
+    --p: 50%;
+    display: block;
+    width: 100%;
+    height: 22px;
+    margin: 0;
+    background: transparent;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: ew-resize;
+  }
+  input[type=range]::-webkit-slider-runnable-track {
+    height: 3px;
+    border-radius: 2px;
+    background: linear-gradient(to right, var(--text) var(--p), #3c3c3c var(--p));
+  }
+  input[type=range]::-moz-range-track { height: 3px; border-radius: 2px; background: #3c3c3c; }
+  input[type=range]::-moz-range-progress { height: 3px; border-radius: 2px; background: var(--text); }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 8px;
+    height: 16px;
+    margin-top: -6.5px;
+    border: 1px solid #111;
+    border-radius: 2px;
+    background: #fff;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 6px;
+    height: 14px;
+    border: 1px solid #111;
+    border-radius: 2px;
+    background: #fff;
+  }
+
+  /* Segmented */
+  .seg { margin-top: 11px; }
+  .seg:first-child { margin-top: 0; }
+  .seg-opts { display: flex; margin-top: 5px; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+  .seg-opts button {
+    flex: 1;
+    min-height: 28px;
+    border: 0;
+    border-left: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .seg-opts button:first-child { border-left: 0; }
+  .seg-opts button:hover { color: var(--text); }
+  .seg-opts button[aria-pressed="true"] { background: var(--text); color: #111; }
+
+  /* Colour */
+  .colour-row { display: grid; grid-template-columns: 34px 1fr 76px; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .colour-row label { color: var(--muted); }
+  input[type=color] {
+    width: 34px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: none;
+    cursor: pointer;
+  }
+  input[type=color]::-webkit-color-swatch-wrapper { padding: 2px; }
+  input[type=color]::-webkit-color-swatch { border: 0; border-radius: 2px; }
+  input[type=color]::-moz-color-swatch { border: 0; border-radius: 2px; }
+  .hex {
+    width: 100%;
+    height: 28px;
+    padding: 0 6px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--raised);
+    font: 12px var(--mono);
+    text-transform: uppercase;
+  }
+  .hex[aria-invalid="true"] { border-color: #ff6b5e; }
+  .swatches { display: flex; gap: 6px; align-items: center; margin-top: 10px; }
+  .swatch {
+    flex: 1;
+    aspect-ratio: 1;
+    min-width: 0;
+    padding: 5px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .swatch:hover { border-color: #8a8a8a; }
+  .swatch svg { display: block; width: 100%; height: 100%; }
+
+  /* Saved patterns */
+  .pat-save { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+  .pat-name { width: 100%; height: 26px; padding: 0 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--raised); font-size: 12px; }
+  #pat-state, #pat-msg { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+  #pat-msg { color: var(--text); }
+  #pat-msg.error { color: #ff8a80; }
+  #pat-msg button { margin-left: 6px; padding: 0; border: 0; background: none; text-decoration: underline; cursor: pointer; }
+  #pat-list { display: flex; flex-direction: column; gap: 4px; max-height: 232px; margin-top: 10px; overflow-y: auto; }
+  #pat-list:empty { display: none; }
+  .pat-row { display: grid; grid-template-columns: minmax(0, 1fr) 30px; gap: 2px; flex: none; }
+  .pat-row .layer-main { min-width: 0; }
+  .pat-row img { width: 48px; height: 32px; flex: none; border-radius: 2px; object-fit: cover; background: #000; }
+  .pat-text { display: flex; flex-direction: column; min-width: 0; }
+  .pat-text b { overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+  .pat-text small { color: var(--muted); font-size: 11px; }
+  .pat-del { border: 1px solid var(--line); border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; }
+  .pat-del:hover { color: var(--text); }
+  .pat-files { display: flex; gap: 6px; margin-top: 10px; }
+  .pat-files .btn { flex: 1; }
+  .pat-folder { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .pat-folder .pat-files { margin-top: 8px; }
+  #folder-state { margin: 0; color: var(--muted); font-size: 12px; }
+  #folder-state.error { color: #ffb74d; }
+
+  /* Shapes */
+  #layers { display: flex; flex-direction: column; gap: 4px; }
+  .layer { display: grid; grid-template-columns: 1fr auto auto; gap: 2px; align-items: stretch; border-radius: 4px; }
+  .layer-main {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 30px;
+    padding: 2px 8px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+  }
+  .layer-main[aria-current="true"] { background: var(--raised); border-color: #6d6d6d; }
+  .layer.off .layer-main { color: var(--muted); }
+  .layer-main svg { width: 14px; height: 14px; flex: none; fill: currentColor; }
+  .empty { margin: 0; color: var(--muted); }
+  #type-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; margin-top: 5px; }
+  #type-grid button {
+    aspect-ratio: 1;
+    min-width: 0;
+    padding: 6px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  #type-grid button:hover { color: var(--text); border-color: #5a5a5a; }
+  #type-grid button[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: #111; }
+  #type-grid svg { display: block; width: 100%; height: 100%; fill: currentColor; }
+  #mode-host { margin-top: 11px; }
+  .motion-head-controls { display: flex; align-items: center; gap: 8px; }
+  .switch {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 26px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .switch .track {
+    position: relative;
+    width: 30px;
+    height: 16px;
+    border-radius: 8px;
+    background: #444;
+    transition: background .12s;
+  }
+  .switch .track::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform .12s;
+  }
+  .switch[aria-checked="true"] { color: var(--text); }
+  .switch[aria-checked="true"] .track { background: #3ddc84; }
+  .switch[aria-checked="true"] .track::after { transform: translateX(14px); }
+  #motion-controls.off { opacity: .5; }
+  .group-head { display: flex; align-items: center; justify-content: space-between; margin: 16px 0 8px; font-weight: 600; font-size: 12px; }
+  .group-body.off { opacity: .5; }
+  #link-note { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+  #link-note button { margin-left: 6px; padding: 0; border: 0; background: none; color: var(--text); text-decoration: underline; cursor: pointer; }
+  #motion-target { margin: 14px 0 0; padding-top: 12px; border-top: 1px dashed var(--line); color: var(--muted); font-size: 12px; }
+  .head-buttons { display: flex; gap: 6px; }
+  .seg-opts button { font-size: 13px; }
+  #shape-controls { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--line); }
+  #curve { display: block; width: 100%; height: 64px; margin-top: 12px; border: 1px solid var(--line); border-radius: 4px; background: #101010; }
+  .curve-legend { display: flex; justify-content: space-between; margin-top: 4px; color: var(--muted); font-size: 11px; }
+  .hint { margin: 10px 0 0; color: var(--muted); font-size: 12px; }
+  .sub-label { margin: 16px 0 8px; font-weight: 600; font-size: 12px; }
+  .energy-label { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--line); }
+
+  [hidden] { display: none !important; }
+
+  @media (max-width: 760px) {
+    body { grid-template-columns: 1fr; grid-template-rows: 48dvh minmax(0, 1fr); }
+    #panel { border-left: 0; border-top: 1px solid var(--line); }
+    #panel header { padding: 8px 16px; }
+  }
+</style>
+</head>
+<body>
+<main id="stage" aria-label="Texture preview">
+  <div id="frame">
+    <canvas id="art"></canvas>
+    <canvas id="overlay" aria-hidden="true"></canvas>
+  </div>
+  <div id="toolbar" role="toolbar" aria-label="View">
+    <span class="tool-label">Zoom</span>
+    <button id="zoom-out" type="button" aria-label="Zoom out" title="Zoom out ( - )">&minus;</button>
+    <input type="range" id="zoom-slider" min="0" max="1000" step="1" aria-label="Zoom">
+    <button id="zoom-in" type="button" aria-label="Zoom in" title="Zoom in ( = )">+</button>
+    <button id="zoom-fit" type="button" title="Back to 100% and centred ( 0 )">100%</button>
+    <span class="sep"></span>
+    <span class="tool-label">Shape</span>
+    <button id="shape-down" type="button" aria-label="Make selected shape smaller" title="Smaller ( [ )">&minus;</button>
+    <button id="shape-up" type="button" aria-label="Make selected shape larger" title="Larger ( ] )">+</button>
+  </div>
+</main>
+
+<aside id="panel" aria-label="Controls">
+  <header>
+    <h1>Crescent Field</h1>
+    <button class="btn quiet small" id="reset" type="button">Reset all</button>
+  </header>
+
+  <div id="scroll">
+    <section aria-labelledby="h-patterns">
+      <h2 id="h-patterns">Saved patterns</h2>
+      <div class="pat-save">
+        <input class="pat-name" id="pat-name" maxlength="40" placeholder="Pattern name" aria-label="Pattern name" spellcheck="false" autocomplete="off">
+        <button class="btn small" id="pat-save" type="button" title="Save (Cmd or Ctrl + S)">Save new</button>
+      </div>
+      <p id="pat-state" role="status"></p>
+      <p id="pat-msg" role="status" hidden></p>
+      <div id="pat-list"></div>
+      <div class="pat-files">
+        <button class="btn small" id="pat-export" type="button" title="Save every pattern to a file you can keep or move to another browser">Download backup</button>
+        <button class="btn small" id="pat-import" type="button" title="Add the patterns from a backup file or pattern files">Load backup</button>
+        <input type="file" id="pat-file" accept=".json,application/json" multiple hidden>
+      </div>
+      <div class="pat-folder" id="pat-folder" hidden>
+        <p id="folder-state" role="status"></p>
+        <div class="pat-files">
+          <button class="btn small" id="folder-pick" type="button" title="Choose a folder. Each pattern is saved there as its own file.">Save to a folder…</button>
+          <button class="btn small" id="folder-allow" type="button" hidden>Allow access</button>
+          <button class="btn small quiet" id="folder-stop" type="button" title="Stop saving to this folder. Nothing is deleted." hidden>Stop</button>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-colour">
+      <h2 id="h-colour">Colour</h2>
+      <div class="colour-row">
+        <input type="color" id="fg" aria-label="Object colour picker">
+        <label for="fg-hex">Object</label>
+        <input class="hex" id="fg-hex" maxlength="7" spellcheck="false" autocomplete="off">
+      </div>
+      <div class="colour-row">
+        <input type="color" id="bg" aria-label="Background colour picker">
+        <label for="bg-hex">Background</label>
+        <input class="hex" id="bg-hex" maxlength="7" spellcheck="false" autocomplete="off">
+      </div>
+      <button class="btn small" id="swap" type="button">Swap colours</button>
+      <div class="swatches" id="swatches"></div>
+    </section>
+
+    <section aria-labelledby="h-texture">
+      <h2 id="h-texture">Texture</h2>
+      <div id="texture-controls"></div>
+    </section>
+
+    <section aria-labelledby="h-shapes">
+      <div class="section-head">
+        <h2 id="h-shapes">Shapes</h2>
+        <div class="head-buttons">
+          <button class="btn small" id="duplicate-shape" type="button" title="Duplicate the selected shape with all its settings (Cmd or Ctrl + D)">Duplicate</button>
+          <button class="btn small" id="add-shape" type="button">Add shape</button>
+        </div>
+      </div>
+      <div id="layers"></div>
+      <div id="all-host"></div>
+      <div id="overlap-host"></div>
+      <div id="shape-controls">
+        <div class="seg-label">Form</div>
+        <div id="type-grid"></div>
+        <div class="upload-row">
+          <button class="btn small" id="upload" type="button">Upload shape</button>
+          <button class="btn quiet small" id="remove-upload" type="button" hidden>Remove upload</button>
+        </div>
+        <input type="file" id="upload-input" accept=".svg,image/svg+xml,image/png,image/jpeg,image/webp" hidden>
+        <p id="upload-status" role="status">SVG works best. PNG or WebP with transparency, or dark-on-light JPG, also work.</p>
+        <div id="mode-host"></div>
+        <div class="sub-label">Scale and fall-off</div>
+        <div id="falloff-controls"></div>
+        <svg id="curve" viewBox="0 0 280 64" preserveAspectRatio="none" aria-hidden="true">
+          <path id="curve-fill" fill="#fff" fill-opacity=".1"></path>
+          <path id="curve-line" fill="none" stroke="#fff" stroke-width="1.5" vector-effect="non-scaling-stroke"></path>
+        </svg>
+        <div class="curve-legend"><span>At the shape</span><span>Fall-off ends</span></div>
+        <div class="sub-label">Placement</div>
+        <div id="place-controls"></div>
+        <p class="hint">Drag a shape on the canvas to move it. On the selected shape, the solid handle sets size and the hollow handle sets fall-off. Shift + scroll, or the [ and ] keys, resize it quickly. Scroll to zoom and drag empty canvas to pan.</p>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-motion">
+      <div class="section-head">
+        <h2 id="h-motion">Motion</h2>
+        <div class="motion-head-controls">
+          <button class="btn small" id="play" type="button">Pause</button>
+          <button class="switch" id="motion-on" type="button" role="switch" aria-checked="false" aria-label="Motion">
+            <span class="track"></span><span id="motion-on-text">Off</span>
+          </button>
+        </div>
+      </div>
+      <div id="motion-controls"></div>
+    </section>
+
+    <section aria-labelledby="h-export">
+      <h2 id="h-export">Export</h2>
+      <div id="export-controls"></div>
+      <button class="btn" id="export-go" type="button">Export motion</button>
+      <p id="export-info" role="status"></p>
+    </section>
+  </div>
+
+  <footer>
+    <button class="btn" id="guides" type="button" aria-pressed="true">Guides</button>
+    <button class="btn" id="save-png" type="button">Save PNG</button>
+    <button class="btn" id="save-svg" type="button">Save SVG</button>
+  </footer>
+</aside>
+
+<div id="busy" role="dialog" aria-modal="true" aria-labelledby="busy-text">
+  <div>
+    <div id="busy-text">Exporting</div>
+    <progress id="busy-bar" max="1" value="0"></progress>
+    <button class="btn small" id="busy-cancel" type="button">Cancel</button>
+  </div>
+</div>
+
+<script>
+/* ---------- The supplied graphic ---------- */
+const GLYPH_D = 'M178.6,0C115.3,0,55,12.6,0,35.4c198.8,43.5,347.6,220.5,347.6,432.4S198.8,856.6,0,900.2c55,22.7,115.3,35.4,178.6,35.4,258.3,0,467.8-209.4,467.8-467.8S436.9,0,178.6,0Z';
+const VB_W = 646.3, VB_H = 935.5;
+const GLYPH_CX = VB_W / 2, GLYPH_CY = VB_H / 2;
+const glyph = new Path2D(GLYPH_D);
+
+/* ---------- Field shapes: unit polygons, y pointing down ---------- */
+function ngon(n, offset = -Math.PI / 2, r = 1) {
+  return Array.from({ length: n }, (_, i) => {
+    const a = offset + i * Math.PI * 2 / n;
+    return [Math.cos(a) * r, Math.sin(a) * r];
+  });
+}
+function star(points, inner) {
+  return Array.from({ length: points * 2 }, (_, i) => {
+    const a = -Math.PI / 2 + i * Math.PI / points, r = i % 2 ? inner : 1;
+    return [Math.cos(a) * r, Math.sin(a) * r];
+  });
+}
+const a = .3, b = .95;
+const SHAPES = {
+  circle:   { name: 'Circle',   pts: ngon(72) },
+  square:   { name: 'Square',   pts: [[-.8, -.8], [.8, -.8], [.8, .8], [-.8, .8]] },
+  triangle: { name: 'Triangle', pts: ngon(3) },
+  diamond:  { name: 'Diamond',  pts: ngon(4) },
+  hexagon:  { name: 'Hexagon',  pts: ngon(6) },
+  star:     { name: 'Star',     pts: star(5, .45) },
+  cross:    { name: 'Cross',    pts: [[-a, -b], [a, -b], [a, -a], [b, -a], [b, a], [a, a], [a, b], [-a, b], [-a, a], [-b, a], [-b, -a], [-a, -a]] },
+  bar:      { name: 'Bar',      pts: [[-1, -.14], [1, -.14], [1, .14], [-1, .14]] },
+};
+
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+/* ---------- State ---------- */
+const STORE_KEY = 'crescent-field-v1';
+const MAX_SHAPES = 12;
+const shapeDefaults = {
+  type: 'circle', visible: true, mode: 'solid',
+  x: 50, y: 50, size: 26, stretch: 100, rotation: 0,
+  peak: 100, falloff: 30, curve: 0, steps: 0,
+  travelOn: true, dir: 'lr', path: 'wrap', travel: 1, shift: 0,
+  rippleOn: true, ripples: 1, rippleStrength: 80, rippleReach: 40, rippleWidth: 6, rippleSpeed: 1,
+  spin: 0,
+  feel: 'steady', feelAmount: 70,
+  beatOn: false, beats: 2, beatFeel: 'hit', beatGrow: 30, beatScale: 0,
+  shakeOn: false, shakeAmount: 3, shakeRate: 6,
+  trailOn: false, trailCount: 4, trailGap: 4,
+  reactOn: false, twist: 90, push: 15,
+};
+// Shared by every shape while Apply to all shapes is on. Offset in loop stays per shape,
+// because it is what staggers shapes and dragging a travelling shape rewrites it.
+const MOTION_KEYS = ['travelOn', 'dir', 'path', 'travel',
+  'rippleOn', 'ripples', 'rippleStrength', 'rippleReach', 'rippleWidth', 'rippleSpeed', 'spin',
+  'feel', 'feelAmount', 'beatOn', 'beats', 'beatFeel', 'beatGrow', 'beatScale',
+  'shakeOn', 'shakeAmount', 'shakeRate', 'trailOn', 'trailCount', 'trailGap', 'reactOn', 'twist', 'push'];
+const pickMotion = s => Object.fromEntries(MOTION_KEYS.map(key => [key, s[key]]));
+const defaults = () => ({
+  fg: '#F4EFE3', bg: '#1F2BE0',
+  tile: 44, spacingX: 75, spacingY: 100, stagger: 50, gridAngle: 0, glyphAngle: 0,
+  base: 20, alternate: 'none', overlap: 'strongest',
+  motionOn: false, playing: true, loop: 6, motionLinked: false,
+  waveOn: false, wavePattern: 'sweep', waveAmount: 40, waveRate: 2, waveDensity: 4,
+  zoom: 1, panX: 0, panY: 0, shapesScale: 100,
+  frame: 'window', stillLong: 8000, outSize: 1080, fps: 30, format: 'mp4', transparent: false,
+  guides: true, active: 0, patternId: '',
+  assets: [],
+  shapes: [{ ...shapeDefaults }],
+});
+
+// Drops any value of the wrong type, so a damaged save falls back to the default for that setting.
+function keepTyped(raw, model) {
+  for (const key of Object.keys(model)) {
+    if (key in raw && (typeof raw[key] !== typeof model[key] || (typeof raw[key] === 'number' && !Number.isFinite(raw[key])))) delete raw[key];
+  }
+  return raw;
+}
+// Brings saved settings of any age up to date. Throws if they are not settings at all.
+function normaliseState(saved) {
+  if (!saved || typeof saved !== 'object' || !Array.isArray(saved.shapes)) throw new Error('Not a saved pattern.');
+  // Spin used to be degrees per second; it is now whole turns per loop.
+  if ('speed' in saved) { saved.spin = clamp(Math.round((saved.spin || 0) / 90), -4, 4); delete saved.speed; }
+  delete saved.drift; delete saved.pulse;
+  // Travel and ripple settings used to apply to every shape; each shape now has its own.
+  const legacy = {};
+  for (const key of ['travel', 'ripples', 'rippleStrength', 'rippleReach', 'rippleWidth', 'rippleSpeed', 'spin']) {
+    if (key in saved) { legacy[key] = saved[key]; delete saved[key]; }
+  }
+  if ('travel' in legacy) { legacy.travelOn = legacy.travel > 0; legacy.travel = Math.max(1, legacy.travel); }
+  if ('ripples' in legacy) { legacy.rippleOn = legacy.ripples > 0; legacy.ripples = Math.max(1, legacy.ripples); }
+  const model = defaults();
+  if (!/^#[0-9a-f]{6}$/i.test(saved.fg)) delete saved.fg;
+  if (!/^#[0-9a-f]{6}$/i.test(saved.bg)) delete saved.bg;
+  const { assets: savedAssets, shapes: savedShapes, ...rest } = saved;
+  const { assets: _a, shapes: _s, ...typedModel } = model;
+  const merged = { ...model, ...keepTyped(rest, typedModel) };
+  merged.loop = clamp(merged.loop, 1, 30);
+  merged.assets = (Array.isArray(savedAssets) ? savedAssets : []).filter(a =>
+    a && typeof a.id === 'string' && typeof a.name === 'string' && /^data:image\//.test(a.data));
+  const ids = new Set(merged.assets.map(a => a.id));
+  merged.shapes = savedShapes
+    .filter(s => s && (SHAPES[s.type] || (s.type === 'custom' && ids.has(s.assetId))))
+    .map(s => ({ ...shapeDefaults, ...legacy, ...keepTyped(s, shapeDefaults) }));
+  return merged;
+}
+function loadState() {
+  try { return normaliseState(JSON.parse(localStorage.getItem(STORE_KEY))); } catch { return defaults(); }
+}
+let state = loadState();
+let saveTimer = 0;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(writeAutosave, 250);
+}
+function writeAutosave() {
+  clearTimeout(saveTimer);
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(state));
+  } catch {
+    patternMessage('The browser could not autosave these settings. Save them as a pattern to keep them.', null, true);
+  }
+  syncPatternUi();
+}
+window.addEventListener('pagehide', writeAutosave);
+const activeShape = () => state.shapes[state.active] || null;
+// Sets a value on one shape, or on all of them when it is a linked motion setting.
+function setShapeValue(s, key, value) {
+  s[key] = value;
+  if (state.motionLinked && MOTION_KEYS.includes(key)) for (const other of state.shapes) other[key] = value;
+}
+
+/* ---------- Scale field ---------- */
+let time = 0;
+const TAU = Math.PI * 2;
+const loopPhase = () => ((time / state.loop) % 1 + 1) % 1;
+const curveGamma = c => Math.pow(2, c / 33);
+function shapeResponse(t, gamma, steps) {
+  let v = Math.pow(t, gamma);
+  if (steps > 0) v = Math.round(v * steps) / steps;
+  return v;
+}
+
+const smoother = x => x * x * x * (x * (x * 6 - 15) + 10);
+// Reshapes one cycle of motion. It always runs 0 to 1, so whole cycles still join up.
+function feelCurve(f, feel, amount) {
+  if (feel === 'flow') return f + (smoother(f) - f) * amount;
+  const mix = Math.min(amount * 3, 1);
+  if (feel === 'snap') {
+    const hold = amount * .85;
+    return f + ((f <= hold ? 0 : smoother((f - hold) / (1 - hold))) - f) * mix;
+  }
+  if (feel === 'whip') {
+    const hold = amount * .5, back = 1.2 + amount * 1.8;
+    const x = (f <= hold ? 0 : (f - hold) / (1 - hold)) - 1;
+    return f + ((1 + (back + 1) * x * x * x + back * x * x) - f) * mix;
+  }
+  return f;
+}
+function warp(cycles, s) {
+  if (s.feel === 'steady') return cycles;
+  const whole = Math.floor(cycles);
+  return whole + feelCurve(cycles - whole, s.feel, s.feelAmount / 100);
+}
+// Passes completed by this point in the loop. Back and forth accents both ends of the frame.
+function travelDone(s, phase) {
+  const passes = phase * s.travel;
+  return s.path === 'bounce' ? warp(passes * 2, s) / 2 : warp(passes, s);
+}
+// 0 to 1 envelope for one beat, either a smooth swell or a sharp hit that dies away.
+function beatAt(s, phase) {
+  const v = phase * s.beats, f = v - Math.floor(v);
+  if (s.beatFeel === 'smooth') return .5 - .5 * Math.cos(TAU * f);
+  if (f < .06) return f / .06;
+  const floor = Math.exp(-5);
+  return (Math.exp(-5 * (f - .06) / .94) - floor) / (1 - floor);
+}
+// Irregular wobble built from whole-number harmonics, so it repeats exactly each loop.
+const wobble = (p, seed) => (Math.sin(TAU * (p + seed * .37)) * .6
+  + Math.sin(TAU * (2 * p + seed * .71)) * .3
+  + Math.sin(TAU * (3 * p + seed * .13)) * .2);
+
+// Applies motion to a shape and caches everything the distance test needs.
+// A trail echo is the same shape read earlier in the loop (lag) at reduced strength (echo).
+function compileShape(s, i, W, H, lag = 0, echo = 1) {
+  const short = Math.min(W, H), all = state.shapesScale / 100;
+  let cx = s.x / 100 * W, cy = s.y / 100 * H;
+  let size = s.size / 100 * short * all, rot = s.rotation * Math.PI / 180;
+  // Every motion completes a whole number of cycles per loop, so exports repeat seamlessly.
+  const on = state.motionOn;
+  const phase = on ? ((loopPhase() - lag) % 1 + 1) % 1 : 0;
+  const pulse = on && s.beatOn ? beatAt(s, phase) : 0;
+  const grow = pulse ? Math.max(1 + pulse * s.beatGrow / 100, .02) : 1;
+  const growMax = on && s.beatOn ? Math.max(1, 1 + s.beatGrow / 100) : 1;
+  size *= grow;
+  const peak = Math.max(s.peak * (1 + pulse * s.beatScale / 100), 0);
+  const shakeAmp = on && s.shakeOn ? s.shakeAmount / 100 * short * all : 0;
+  const shakeX = shakeAmp * wobble(phase * s.shakeRate, i + 1);
+  const shakeY = shakeAmp * wobble(phase * s.shakeRate, i + 1.5);
+  if (shakeAmp) rot += wobble(phase * s.shakeRate, i + 2) * s.shakeAmount * .02;
+  if (on && s.spin) rot += warp(phase * Math.abs(s.spin), s) * Math.sign(s.spin) * TAU;
+  const ripples = on && s.rippleOn && !lag ? s.ripples : 0;
+  const rippleReach = ripples ? s.rippleReach / 100 * short * all : 0;
+  const rippleWidth = ripples ? Math.max(s.rippleWidth / 100 * short * all, .5) : 0;
+  const falloff = Math.max(s.falloff / 100 * short * all, .5);
+
+  const sx = s.stretch / 100;
+  const field = s.type === 'custom' ? getField(s.assetId, s.stretch) : null;
+  const unit = field ? [] : (SHAPES[s.type] || SHAPES.circle).pts;
+  const n = unit.length;
+  const vx = new Float64Array(n), vy = new Float64Array(n);
+  const ex = new Float64Array(n), ey = new Float64Array(n), ee = new Float64Array(n);
+  let bound = field ? field.bound * size : 0;
+  for (let k = 0; k < n; k++) {
+    vx[k] = unit[k][0] * sx * size;
+    vy[k] = unit[k][1] * size;
+    bound = Math.max(bound, Math.hypot(vx[k], vy[k]));
+  }
+  const reach = bound + Math.max(falloff, rippleReach + rippleWidth);
+  let wrapX = 0, wrapY = 0;
+  if (on && s.travelOn) {
+    const { z, ox, oy } = camera();
+    const vertical = s.dir === 'tb' || s.dir === 'bt';
+    const sign = s.dir === 'lr' || s.dir === 'tb' ? 1 : -1;
+    const length = (vertical ? H : W) / z, origin = -(vertical ? oy : ox) / z;
+    const home = vertical ? cy : cx;
+    let pos;
+    if (s.path === 'bounce') {
+      // Reflects between the frame edges: one pass is there and back.
+      const offset = sign * (travelDone(s, phase) + s.shift / 100) * length * 2;
+      const t = (((home + offset - origin) / length) % 2 + 2) % 2;
+      pos = origin + (t > 1 ? 2 - t : t) * length;
+    } else {
+      // Wraps once the shape and its fall-off are out of frame.
+      // Sized for the largest beat and shake, so the wrap distance never changes mid-loop.
+      const margin = bound / grow * growMax + falloff + shakeAmp * 1.1;
+      const period = length + margin * 2, start = origin - margin;
+      const u = (home - start) / period + sign * (travelDone(s, phase) + s.shift / 100);
+      pos = start + (u - Math.floor(u)) * period;
+      if (vertical) wrapY = period; else wrapX = period;
+    }
+    if (vertical) cy = pos; else cx = pos;
+  }
+  cx += shakeX;
+  cy += shakeY;
+  const reacts = on && s.reactOn;
+  for (let k = 0; k < n; k++) {
+    const j = (k + n - 1) % n;
+    ex[k] = vx[j] - vx[k];
+    ey[k] = vy[j] - vy[k];
+    ee[k] = ex[k] * ex[k] + ey[k] * ey[k] || 1e-9;
+  }
+  return {
+    source: s, index: i, type: s.type, field, cx, cy, size, sx, rot, n, vx, vy, ex, ey, ee, bound,
+    cos: Math.cos(rot), sin: Math.sin(rot),
+    round: s.type === 'circle' && s.stretch === 100,
+    falloff, reach, wrapX, wrapY, ripples, rippleReach, rippleWidth,
+    ripplePhase: warp(phase * s.rippleSpeed, s), rippleStrength: s.rippleStrength / 100,
+    gamma: curveGamma(s.curve), steps: s.steps,
+    edge: s.mode === 'edge',
+    peak, delta: (peak - state.base) * echo,
+    echo, isEcho: lag > 0, shakeX, shakeY, grow,
+    twist: reacts ? s.twist * Math.PI / 180 : 0,
+    push: reacts ? s.push / 100 * short * all * .2 : 0,
+  };
+}
+
+// Signed distance from a point to the shape's edge (negative is inside).
+function signedDistance(c, px, py) {
+  const dx = px - c.cx, dy = py - c.cy;
+  if (c.round) return Math.hypot(dx, dy) - c.size;
+  const x = dx * c.cos + dy * c.sin, y = -dx * c.sin + dy * c.cos;
+  if (c.field) return fieldDistance(c, x, y);
+  const { n, vx, vy, ex, ey, ee } = c;
+  let wx = x - vx[0], wy = y - vy[0];
+  let d = wx * wx + wy * wy, sign = 1;
+  for (let k = 0; k < n; k++) {
+    const j = (k + n - 1) % n;
+    wx = x - vx[k]; wy = y - vy[k];
+    let h = (wx * ex[k] + wy * ey[k]) / ee[k];
+    h = h < 0 ? 0 : h > 1 ? 1 : h;
+    const bx = wx - ex[k] * h, by = wy - ey[k] * h;
+    const dd = bx * bx + by * by;
+    if (dd < d) d = dd;
+    const c1 = y >= vy[k], c2 = y < vy[j], c3 = ex[k] * wy > ey[k] * wx;
+    if ((c1 && c2 && c3) || (!c1 && !c2 && !c3)) sign = -sign;
+  }
+  return sign * Math.sqrt(d);
+}
+
+// Rings that leave the shape's edge and fade out as they reach the end of their travel.
+function rippleAt(c, d) {
+  if (!c.ripples) return 0;
+  const dist = c.edge ? Math.abs(d) : d;
+  if (dist < 0) return 0;
+  let best = 0;
+  for (let k = 0; k < c.ripples; k++) {
+    let f = c.ripplePhase + k / c.ripples;
+    f -= Math.floor(f);
+    const x = (dist - f * c.rippleReach) / c.rippleWidth;
+    if (x <= -1 || x >= 1) continue;
+    const v = (.5 + .5 * Math.cos(Math.PI * x)) * Math.min(f / .08, 1) * (1 - f);
+    if (v > best) best = v;
+  }
+  return best * c.rippleStrength;
+}
+
+// How the shapes turn and displace the crescent scaleAt last measured.
+let fxTurn = 0, fxX = 0, fxY = 0;
+// A shape and its echoes count once, by their strongest reading, so trails do not stack up.
+function scaleAt(compiled, px, py) {
+  let strongest = 0, sum = 0, group = -1, gDelta = 0, gWeight = 0, gTurn = 0, gX = 0, gY = 0;
+  fxTurn = fxX = fxY = 0;
+  for (let i = 0; i <= compiled.length; i++) {
+    const c = compiled[i];
+    if (!c || c.index !== group) {
+      sum += gDelta; fxTurn += gTurn; fxX += gX; fxY += gY;
+      gDelta = gWeight = gTurn = gX = gY = 0;
+      if (!c) break;
+      group = c.index;
+    }
+    // Far outside the shape's bounding circle: nothing to compute.
+    const ox = px - c.cx, oy = py - c.cy;
+    if (ox * ox + oy * oy >= c.reach * c.reach) continue;
+    const d = signedDistance(c, px, py);
+    let t;
+    if (c.edge) t = 1 - Math.abs(d) / c.falloff;
+    else t = d <= 0 ? 1 : 1 - d / c.falloff;
+    const held = t > 0 ? shapeResponse(t, c.gamma, c.steps) : 0;
+    const wave = rippleAt(c, d);
+    const total = held + (1 - held) * wave;
+    if (total <= 0) continue;
+    const delta = c.delta * total;
+    if (Math.abs(delta) > Math.abs(gDelta)) gDelta = delta;
+    if (Math.abs(delta) > Math.abs(strongest)) strongest = delta;
+    const weight = total * c.echo;
+    if ((c.twist || c.push) && weight > gWeight) {
+      gWeight = weight;
+      gTurn = c.twist * weight;
+      // Eases to nothing at the centre, so crescents do not jump across it.
+      const len = Math.hypot(ox, oy) || 1;
+      const k = c.push * weight * Math.min(len / (c.bound * .6 + 1), 1) / len;
+      gX = ox * k;
+      gY = oy * k;
+    }
+  }
+  const scale = state.base + (state.overlap === 'add' ? sum : strongest);
+  return scale > 0 ? scale / 100 : 0;
+}
+
+/* Camera: screen = world * z + (ox, oy). Zoom has a floor so the crescent count stays drawable. */
+const GLYPH_BUDGET = 60000;
+function zoomFloor() {
+  const stepX = Math.max(state.tile * state.spacingX / 100, 1);
+  const stepY = Math.max(state.tile * state.spacingY / 100, 1);
+  return Math.max(.1, Math.sqrt(viewW * viewH / (stepX * stepY * GLYPH_BUDGET)));
+}
+function camera() {
+  const z = clamp(state.zoom, zoomFloor(), 8);
+  return { z, ox: viewW / 2 + state.panX - viewW / 2 * z, oy: viewH / 2 + state.panY - viewH / 2 * z };
+}
+
+/* Walks the lattice and reports the screen transform for every visible crescent. */
+function forEachGlyph(W, H, visit) {
+  const compiled = [];
+  state.shapes.forEach((s, i) => {
+    if (!s.visible) return;
+    const c = compileShape(s, i, W, H);
+    compiled.push(c);
+    // Ripples outlast the shape's wrap, so repeats one span away carry them across the join.
+    const wrap = c.wrapX || c.wrapY;
+    if (c.ripples && wrap) {
+      const repeats = Math.ceil(c.reach / wrap);
+      for (let k = 1; k <= repeats; k++) {
+        compiled.push(
+          { ...c, cx: c.cx - k * c.wrapX, cy: c.cy - k * c.wrapY },
+          { ...c, cx: c.cx + k * c.wrapX, cy: c.cy + k * c.wrapY });
+      }
+    }
+    if (state.motionOn && s.trailOn) {
+      for (let k = 1; k <= s.trailCount; k++) {
+        compiled.push(compileShape(s, i, W, H, k * s.trailGap / 100, 1 - k / (s.trailCount + 1)));
+      }
+    }
+  });
+  const tile = state.tile;
+  const stepX = Math.max(tile * state.spacingX / 100, 1);
+  const stepY = Math.max(tile * state.spacingY / 100, 1);
+  const stagger = state.stagger / 100;
+  const theta = state.gridAngle * Math.PI / 180;
+  const cosT = Math.cos(theta), sinT = Math.sin(theta);
+  const phi = state.glyphAngle * Math.PI / 180;
+  const cosP = Math.cos(phi), sinP = Math.sin(phi);
+  const midX = W / 2, midY = H / 2;
+  const { z, ox, oy } = camera();
+
+  // The part of the world on screen.
+  const left = -ox / z, top = -oy / z, right = (W - ox) / z, bottom = (H - oy) / z;
+  const viewCX = (left + right) / 2 - midX, viewCY = (top + bottom) / 2 - midY;
+
+  let maxScale = state.base;
+  if (state.overlap === 'add') {
+    for (const c of compiled) if (c.delta > 0 && !c.isEcho) maxScale += c.delta;
+  } else {
+    for (const c of compiled) maxScale = Math.max(maxScale, c.peak);
+  }
+  const waveOn = state.motionOn && state.waveOn;
+  const waveAmount = waveOn ? state.waveAmount / 100 : 0;
+  const waveTime = waveOn ? loopPhase() * state.waveRate : 0;
+  const waveUnit = state.waveDensity / Math.min(W, H);
+  maxScale *= 1 + waveAmount;
+  let maxPush = 0;
+  for (const c of compiled) maxPush += Math.abs(c.isEcho ? 0 : c.push);
+  const radius = Math.hypot(right - left, bottom - top) / 2 + tile * maxScale / 100 * .61 + maxPush;
+  const rows = Math.ceil(radius / stepY) + 1;
+  const cols = Math.ceil(radius / stepX) + 1 + Math.ceil(stagger);
+  const row0 = Math.round((-viewCX * sinT + viewCY * cosT) / stepY);
+  const col0 = Math.round((viewCX * cosT + viewCY * sinT) / stepX);
+  const unit = tile / VB_H;
+
+  for (let j = row0 - rows; j <= row0 + rows; j++) {
+    const shift = (((j % 2) + 2) % 2) * stagger * stepX;
+    for (let i = col0 - cols; i <= col0 + cols; i++) {
+      const u = i * stepX + shift, v = j * stepY;
+      const x = midX + u * cosT - v * sinT;
+      const y = midY + u * sinT + v * cosT;
+      if (x < left - radius * 2 || x > right + radius * 2) continue;
+      let scale = scaleAt(compiled, x, y);
+      const turn = fxTurn, gx = x + fxX, gy = y + fxY;
+      if (waveAmount) {
+        let offset;
+        if (state.wavePattern === 'sparkle') {
+          const n = Math.sin(i * 12.9898 + j * 78.233) * 43758.5453;
+          offset = n - Math.floor(n);
+        } else if (state.wavePattern === 'radiate') offset = Math.hypot(x - midX, y - midY) * waveUnit;
+        else offset = x * waveUnit;
+        scale *= 1 + waveAmount * Math.sin(TAU * (waveTime - offset));
+      }
+      if (scale < .003 || tile * scale * z < .25) continue;
+      const reach = tile * scale * .61;
+      if (gx < left - reach || gy < top - reach || gx > right + reach || gy > bottom + reach) continue;
+
+      let mirror = 1;
+      if (state.alternate === 'rows' && ((j % 2) + 2) % 2) mirror = -1;
+      else if (state.alternate === 'checker' && (((i + j) % 2) + 2) % 2) mirror = -1;
+
+      const k = unit * scale * z;
+      const cosG = turn ? Math.cos(phi + turn) : cosP, sinG = turn ? Math.sin(phi + turn) : sinP;
+      const ma = k * cosG * mirror, mb = k * sinG * mirror;
+      const mc = -k * sinG, md = k * cosG;
+      visit(ma, mb, mc, md, gx * z + ox - ma * GLYPH_CX - mc * GLYPH_CY, gy * z + oy - mb * GLYPH_CX - md * GLYPH_CY);
+    }
+  }
+}
+
+/* ---------- Uploaded shapes: an alpha mask baked into a distance field ---------- */
+const assets = new Map();
+const fieldCache = new Map();
+const FIELD_CELLS = 320;
+const bakeCanvas = document.createElement('canvas');
+const bakeCtx = bakeCanvas.getContext('2d', { willReadFrequently: true });
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('The file could not be read as an image.'));
+    img.src = src;
+  });
+}
+
+// Opaque artwork has no usable alpha, so the shape is whatever differs from the corner colour.
+function buildMask(image, w, h) {
+  const work = document.createElement('canvas');
+  work.width = w; work.height = h;
+  const wctx = work.getContext('2d', { willReadFrequently: true });
+  wctx.drawImage(image, 0, 0, w, h);
+  const px = wctx.getImageData(0, 0, w, h).data;
+  const at = (x, y) => (y * w + x) * 4;
+  const corners = [at(0, 0), at(w - 1, 0), at(0, h - 1), at(w - 1, h - 1)];
+  const opaque = corners.every(i => px[i + 3] > 200);
+  const alpha = new Uint8ClampedArray(w * h);
+  if (opaque) {
+    const lum = i => .2126 * px[i] + .7152 * px[i + 1] + .0722 * px[i + 2];
+    const paper = corners.reduce((sum, i) => sum + lum(i), 0) / 4;
+    let most = 0;
+    for (let i = 0; i < alpha.length; i++) most = Math.max(most, Math.abs(lum(i * 4) - paper));
+    if (most < 24) throw new Error('No shape found: the image is a single flat colour.');
+    // Remap so compression noise settles to fully inside or fully outside.
+    for (let i = 0; i < alpha.length; i++) alpha[i] = clamp((Math.abs(lum(i * 4) - paper) / most - .15) / .7, 0, 1) * 255;
+  } else {
+    for (let i = 0; i < alpha.length; i++) alpha[i] = px[i * 4 + 3];
+  }
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (alpha[y * w + x] > 16) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  }
+  if (x1 < 0) throw new Error('No shape found: the image is empty or fully transparent.');
+  const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+  const crop = document.createElement('canvas');
+  crop.width = bw; crop.height = bh;
+  const cctx = crop.getContext('2d');
+  const out = cctx.createImageData(bw, bh);
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const o = (y * bw + x) * 4;
+    out.data[o] = out.data[o + 1] = out.data[o + 2] = 255;
+    out.data[o + 3] = alpha[(y + y0) * w + x + x0];
+  }
+  cctx.putImageData(out, 0, 0);
+  const k = 512 / Math.max(bw, bh);
+  const mask = document.createElement('canvas');
+  mask.width = Math.max(1, Math.round(bw * k));
+  mask.height = Math.max(1, Math.round(bh * k));
+  const mctx = mask.getContext('2d');
+  mctx.imageSmoothingQuality = 'high';
+  mctx.drawImage(crop, 0, 0, mask.width, mask.height);
+  return mask.toDataURL('image/png');
+}
+
+async function imageFromFile(file) {
+  const isSVG = file.type === 'image/svg+xml' || /\.svg$/i.test(file.name);
+  let img, w, h;
+  if (isSVG) {
+    const doc = new DOMParser().parseFromString(await file.text(), 'image/svg+xml');
+    const root = doc.documentElement;
+    if (doc.querySelector('parsererror') || root.localName !== 'svg') throw new Error('That SVG could not be parsed.');
+    const box = (root.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+    let vw = box.length === 4 ? box[2] : parseFloat(root.getAttribute('width'));
+    let vh = box.length === 4 ? box[3] : parseFloat(root.getAttribute('height'));
+    if (!(vw > 0) || !(vh > 0)) { vw = vh = 1024; }
+    if (box.length !== 4) root.setAttribute('viewBox', `0 0 ${vw} ${vh}`);
+    const k = 1024 / Math.max(vw, vh);
+    w = Math.max(1, Math.round(vw * k)); h = Math.max(1, Math.round(vh * k));
+    root.setAttribute('width', w);
+    root.setAttribute('height', h);
+    img = await loadImage('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(doc)));
+  } else {
+    const url = URL.createObjectURL(file);
+    try { img = await loadImage(url); } finally { setTimeout(() => URL.revokeObjectURL(url), 1000); }
+    const k = Math.min(1, 1024 / Math.max(img.naturalWidth, img.naturalHeight));
+    w = Math.max(1, Math.round(img.naturalWidth * k)); h = Math.max(1, Math.round(img.naturalHeight * k));
+  }
+  return { img, w, h };
+}
+
+async function registerAsset(rec) {
+  const img = await loadImage(rec.data);
+  const mask = document.createElement('canvas');
+  mask.width = img.naturalWidth; mask.height = img.naturalHeight;
+  mask.getContext('2d').drawImage(img, 0, 0);
+  const long = Math.max(mask.width, mask.height);
+  assets.set(rec.id, { ...rec, mask, aw: mask.width / long, ah: mask.height / long });
+}
+
+async function addUpload(file) {
+  const status = $('upload-status');
+  status.classList.remove('error');
+  if (file.size > 20 * 1024 * 1024) throw new Error('That file is over 20 MB.');
+  const { img, w, h } = await imageFromFile(file);
+  const rec = { id: 'a' + Date.now().toString(36), name: file.name.replace(/\.[^.]+$/, '').slice(0, 24) || 'Upload', data: buildMask(img, w, h) };
+  await registerAsset(rec);
+  state.assets.push(rec);
+  if (!activeShape()) { state.shapes.push({ ...shapeDefaults }); state.active = state.shapes.length - 1; }
+  const s = activeShape();
+  s.type = 'custom';
+  s.assetId = rec.id;
+  status.textContent = `Using ${rec.name} as the selected shape.`;
+  syncAll(); requestDraw(); save();
+}
+async function handleUpload(file) {
+  try { await addUpload(file); } catch (err) {
+    const status = $('upload-status');
+    status.classList.add('error');
+    status.textContent = err.message || 'That file could not be used.';
+  }
+}
+
+function edt1d(grid, offset, stride, length, f, v, zs) {
+  v[0] = 0; zs[0] = -1e20; zs[1] = 1e20; f[0] = grid[offset];
+  for (let q = 1, k = 0, s = 0; q < length; q++) {
+    f[q] = grid[offset + q * stride];
+    const q2 = q * q;
+    do {
+      const r = v[k];
+      s = (f[q] - f[r] + q2 - r * r) / (q - r) / 2;
+    } while (s <= zs[k] && --k > -1);
+    k++;
+    v[k] = q; zs[k] = s; zs[k + 1] = 1e20;
+  }
+  for (let q = 0, k = 0; q < length; q++) {
+    while (zs[k + 1] < q) k++;
+    const r = v[k], qr = q - r;
+    grid[offset + q * stride] = f[r] + qr * qr;
+  }
+}
+function edt(grid, w, h) {
+  const n = Math.max(w, h);
+  const f = new Float64Array(n), v = new Uint16Array(n), zs = new Float64Array(n + 1);
+  for (let x = 0; x < w; x++) edt1d(grid, x, w, h, f, v, zs);
+  for (let y = 0; y < h; y++) edt1d(grid, y * w, 1, w, f, v, zs);
+}
+
+// Bakes a distance field for one upload at one stretch. Returns null until the upload has loaded.
+function getField(id, stretch) {
+  const key = id + '|' + stretch;
+  const hit = fieldCache.get(key);
+  if (hit) return hit;
+  const asset = assets.get(id);
+  if (!asset) return null;
+
+  const halfW = asset.aw * stretch / 100, halfH = asset.ah;
+  const pad = Math.max(halfW, halfH) * .3;
+  const ppu = FIELD_CELLS / (2 * (Math.max(halfW, halfH) + pad));
+  const gw = Math.ceil(2 * (halfW + pad) * ppu), gh = Math.ceil(2 * (halfH + pad) * ppu);
+  bakeCanvas.width = gw; bakeCanvas.height = gh;
+  bakeCtx.imageSmoothingQuality = 'high';
+  bakeCtx.drawImage(asset.mask, gw / 2 - halfW * ppu, gh / 2 - halfH * ppu, 2 * halfW * ppu, 2 * halfH * ppu);
+  const px = bakeCtx.getImageData(0, 0, gw, gh).data;
+  const outer = new Float64Array(gw * gh), inner = new Float64Array(gw * gh);
+  for (let i = 0; i < gw * gh; i++) {
+    // Only true edge pixels get sub-pixel treatment; near-solid values would read as false edges.
+    const raw = px[i * 4 + 3] / 255;
+    const a = raw > .96 ? 1 : raw < .04 ? 0 : raw;
+    outer[i] = a >= 1 ? 0 : a <= 0 ? 1e20 : Math.pow(Math.max(0, .5 - a), 2);
+    inner[i] = a >= 1 ? 1e20 : a <= 0 ? 0 : Math.pow(Math.max(0, a - .5), 2);
+  }
+  edt(outer, gw, gh);
+  edt(inner, gw, gh);
+  const grid = new Float32Array(gw * gh);
+  for (let i = 0; i < grid.length; i++) grid[i] = Math.sqrt(outer[i]) - Math.sqrt(inner[i]);
+
+  // Marching squares traces the outline for the on-canvas guide.
+  const outline = new Path2D();
+  const step = 2;
+  const pt = (x, y) => [(x + .5 - gw / 2) / ppu, (y + .5 - gh / 2) / ppu];
+  const cross = (d0, d1) => d0 / (d0 - d1);
+  for (let y = 0; y + step < gh; y += step) for (let x = 0; x + step < gw; x += step) {
+    const a = grid[y * gw + x], b = grid[y * gw + x + step];
+    const c = grid[(y + step) * gw + x + step], d = grid[(y + step) * gw + x];
+    const hits = [];
+    if ((a < 0) !== (b < 0)) hits.push(pt(x + cross(a, b) * step, y));
+    if ((b < 0) !== (c < 0)) hits.push(pt(x + step, y + cross(b, c) * step));
+    if ((c < 0) !== (d < 0)) hits.push(pt(x + step - cross(c, d) * step, y + step));
+    if ((d < 0) !== (a < 0)) hits.push(pt(x, y + step - cross(d, a) * step));
+    for (let h = 0; h + 1 < hits.length; h += 2) {
+      outline.moveTo(hits[h][0], hits[h][1]);
+      outline.lineTo(hits[h + 1][0], hits[h + 1][1]);
+    }
+  }
+  const field = { grid, gw, gh, ppu, outline, halfW, halfH, mask: asset.mask, bound: Math.hypot(halfW, halfH) };
+  if (fieldCache.size >= 24) fieldCache.delete(fieldCache.keys().next().value);
+  fieldCache.set(key, field);
+  return field;
+}
+
+function fieldDistance(c, x, y) {
+  const f = c.field, size = c.size || 1e-6;
+  const gx = x / size * f.ppu + f.gw / 2 - .5, gy = y / size * f.ppu + f.gh / 2 - .5;
+  // Past the grid edge: distance to the edge plus the distance stored at the edge.
+  const cx = gx < 0 ? 0 : gx > f.gw - 1.001 ? f.gw - 1.001 : gx;
+  const cy = gy < 0 ? 0 : gy > f.gh - 1.001 ? f.gh - 1.001 : gy;
+  const extra = cx === gx && cy === gy ? 0 : Math.hypot(gx - cx, gy - cy);
+  const ix = cx | 0, iy = cy | 0, tx = cx - ix, ty = cy - iy;
+  const g = f.grid, w = f.gw, o = iy * w + ix;
+  const top = g[o] + (g[o + 1] - g[o]) * tx;
+  const bot = g[o + w] + (g[o + w + 1] - g[o + w]) * tx;
+  return (top + (bot - top) * ty + extra) / f.ppu * size;
+}
+
+/* ---------- Rendering ---------- */
+const stage = document.getElementById('stage');
+const art = document.getElementById('art'), ctx = art.getContext('2d');
+const frame = document.getElementById('frame');
+const overlay = document.getElementById('overlay'), octx = overlay.getContext('2d');
+const zoneCanvas = document.createElement('canvas'), zctx = zoneCanvas.getContext('2d');
+let viewW = 1, viewH = 1, dpr = 1, frameRequested = false, lastCount = 0;
+
+const FRAME_RATIOS = { window: 0, '16:9': 16 / 9, '1:1': 1, '4:5': 4 / 5, '9:16': 9 / 16 };
+function resize() {
+  const r = stage.getBoundingClientRect();
+  const ratio = FRAME_RATIOS[state.frame] || 0;
+  let w = Math.max(r.width, 1), h = Math.max(r.height, 1);
+  if (ratio) {
+    const room = 28;
+    const bw = Math.max(w - room * 2, 1), bh = Math.max(h - room * 2, 1);
+    if (bw / bh > ratio) { h = bh; w = bh * ratio; } else { w = bw; h = bw / ratio; }
+  }
+  viewW = w; viewH = h;
+  frame.style.width = w + 'px';
+  frame.style.height = h + 'px';
+  frame.style.left = (r.width - w) / 2 + 'px';
+  frame.style.top = (r.height - h) / 2 + 'px';
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  for (const c of [art, overlay, zoneCanvas]) {
+    c.width = Math.round(viewW * dpr);
+    c.height = Math.round(viewH * dpr);
+  }
+  draw();
+  syncExportInfo();
+}
+
+// Draws the texture into any canvas; pxScale maps view units to that canvas's pixels.
+function paint(target, pxScale, transparent) {
+  target.setTransform(1, 0, 0, 1, 0, 0);
+  target.clearRect(0, 0, target.canvas.width, target.canvas.height);
+  if (!transparent) {
+    target.fillStyle = state.bg;
+    target.fillRect(0, 0, target.canvas.width, target.canvas.height);
+  }
+  target.fillStyle = state.fg;
+  let count = 0;
+  forEachGlyph(viewW, viewH, (a, b, c, d, e, f) => {
+    target.setTransform(pxScale * a, pxScale * b, pxScale * c, pxScale * d, pxScale * e, pxScale * f);
+    target.fill(glyph);
+    count++;
+  });
+  return count;
+}
+
+function draw() {
+  lastCount = paint(ctx, dpr, false);
+  drawGuides();
+}
+function requestDraw() {
+  if (frameRequested) return;
+  frameRequested = true;
+  requestAnimationFrame(() => { frameRequested = false; draw(); });
+}
+
+function shapePath(c) {
+  const path = new Path2D();
+  if (c.field) { path.addPath(c.field.outline, new DOMMatrix([c.size, 0, 0, c.size, 0, 0])); return path; }
+  if (c.round) { path.arc(0, 0, c.size, 0, TAU); return path; }
+  for (let k = 0; k < c.n; k++) path.lineTo(c.vx[k], c.vy[k]);
+  path.closePath();
+  return path;
+}
+// Distance from the shape's centre to its outline along a local direction.
+function rayToEdge(c, ux, uy) {
+  if (c.round) return c.size;
+  if (c.field) {
+    // Walk in from outside until the ray first enters the shape.
+    for (let i = 160; i > 0; i--) {
+      const t = c.bound * i / 160;
+      if (fieldDistance(c, ux * t, uy * t) <= 0) return t;
+    }
+    return c.bound;
+  }
+  let best = 0;
+  for (let k = 0; k < c.n; k++) {
+    const j = (k + 1) % c.n;
+    const sx = c.vx[j] - c.vx[k], sy = c.vy[j] - c.vy[k];
+    const denom = ux * sy - uy * sx;
+    if (Math.abs(denom) < 1e-9) continue;
+    const t = (c.vx[k] * sy - c.vy[k] * sx) / denom;
+    const u = (c.vx[k] * uy - c.vy[k] * ux) / denom;
+    if (t > best && u >= 0 && u <= 1) best = t;
+  }
+  return best || c.bound;
+}
+const HANDLE_ANGLES = [0, Math.PI, -Math.PI / 2, Math.PI / 2, -Math.PI / 4, Math.PI / 4, -3 * Math.PI / 4, 3 * Math.PI / 4];
+// Handles sit on the first direction that keeps them on the canvas.
+// A drag passes its starting angle so they do not jump while being held.
+function handlePoints(c, fixedAngle) {
+  const place = angle => {
+    const ux = Math.cos(angle), uy = Math.sin(angle);
+    const wx = c.cos * ux - c.sin * uy, wy = c.sin * ux + c.cos * uy;
+    const edge = rayToEdge(c, ux, uy);
+    const size = [c.cx + wx * edge, c.cy + wy * edge];
+    const fall = [c.cx + wx * (edge + c.falloff), c.cy + wy * (edge + c.falloff)];
+    const m = 14;
+    const { z, ox, oy } = camera();
+    const fx = fall[0] * z + ox, fy = fall[1] * z + oy;
+    const overflow = Math.max(0, m - fx, fx - viewW + m, m - fy, fy - viewH + m);
+    return { angle, wx, wy, edge, size, fall, overflow };
+  };
+  if (fixedAngle !== undefined) return place(fixedAngle);
+  let best = null;
+  for (const angle of HANDLE_ANGLES) {
+    const h = place(angle);
+    if (!h.overflow) return h;
+    if (!best || h.overflow < best.overflow) best = h;
+  }
+  return best;
+}
+function luminance(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return (.2126 * (n >> 16 & 255) + .7152 * (n >> 8 & 255) + .0722 * (n & 255)) / 255;
+}
+
+function drawGuides() {
+  octx.setTransform(1, 0, 0, 1, 0, 0);
+  octx.clearRect(0, 0, overlay.width, overlay.height);
+  if (!state.guides) return;
+  const tint = luminance(state.bg) > .5 ? '#000' : '#fff';
+  const list = state.shapes.map((s, i) => compileShape(s, i, viewW, viewH));
+  const current = list[state.active];
+  const { z, ox, oy } = camera();
+  const worldTransform = target => target.setTransform(dpr * z, 0, 0, dpr * z, dpr * ox, dpr * oy);
+
+  // Fall-off zone of the selected shape, drawn opaque first so fill and stroke do not double up.
+  if (current && current.source.visible) {
+    zctx.setTransform(1, 0, 0, 1, 0, 0);
+    zctx.clearRect(0, 0, zoneCanvas.width, zoneCanvas.height);
+    worldTransform(zctx);
+    zctx.translate(current.cx, current.cy);
+    zctx.rotate(current.rot);
+    zctx.fillStyle = zctx.strokeStyle = tint;
+    zctx.lineJoin = zctx.lineCap = 'round';
+    zctx.lineWidth = current.falloff * 2;
+    const path = shapePath(current);
+    if (!current.edge) {
+      if (current.field) {
+        const f = current.field, size = current.size;
+        zctx.drawImage(f.mask, -f.halfW * size, -f.halfH * size, 2 * f.halfW * size, 2 * f.halfH * size);
+      } else {
+        zctx.fill(path);
+      }
+    }
+    zctx.stroke(path);
+    if (current.field) {
+      zctx.setTransform(1, 0, 0, 1, 0, 0);
+      zctx.globalCompositeOperation = 'source-in';
+      zctx.fillRect(0, 0, zoneCanvas.width, zoneCanvas.height);
+      zctx.globalCompositeOperation = 'source-over';
+    }
+    octx.setTransform(1, 0, 0, 1, 0, 0);
+    octx.globalAlpha = .13;
+    octx.drawImage(zoneCanvas, 0, 0);
+    octx.globalAlpha = 1;
+  }
+
+  // Guide lines keep a constant on-screen weight at any zoom.
+  worldTransform(octx);
+  for (const c of list) {
+    if (!c.source.visible) continue;
+    const selected = c === current;
+    const path = shapePath(c);
+    octx.save();
+    octx.translate(c.cx, c.cy);
+    octx.rotate(c.rot);
+    octx.lineJoin = octx.lineCap = 'round';
+    octx.strokeStyle = 'rgba(0,0,0,.55)';
+    octx.lineWidth = (selected ? 3 : 2.5) / z;
+    octx.stroke(path);
+    octx.strokeStyle = selected ? '#fff' : 'rgba(255,255,255,.65)';
+    octx.lineWidth = (selected ? 1.25 : 1) / z;
+    if (!selected && !c.field) octx.setLineDash([4 / z, 4 / z]);
+    octx.stroke(path);
+    octx.restore();
+  }
+
+  if (current && current.source.visible) {
+    const h = handlePoints(current, drag && drag.s === current.source ? drag.angle : undefined);
+    octx.lineWidth = 3 / z;
+    octx.strokeStyle = 'rgba(0,0,0,.55)';
+    octx.beginPath(); octx.moveTo(...h.size); octx.lineTo(...h.fall); octx.stroke();
+    octx.lineWidth = 1 / z;
+    octx.strokeStyle = '#fff';
+    octx.beginPath(); octx.moveTo(...h.size); octx.lineTo(...h.fall); octx.stroke();
+    const dot = (p, filled) => {
+      octx.beginPath();
+      octx.arc(p[0], p[1], 6 / z, 0, TAU);
+      octx.fillStyle = filled ? '#fff' : '#111';
+      octx.fill();
+      octx.lineWidth = 1.5 / z;
+      octx.strokeStyle = filled ? '#111' : '#fff';
+      octx.stroke();
+    };
+    dot(h.fall, false);
+    dot(h.size, true);
+  }
+}
+
+/* ---------- Motion loop ---------- */
+let lastTick = 0, exporting = false;
+const hasMotion = () => state.motionOn && ((state.waveOn && state.waveAmount > 0) || state.shapes.some(s => s.visible && (
+  s.travelOn || s.rippleOn || s.spin !== 0 || (s.beatOn && (s.beatGrow !== 0 || s.beatScale !== 0)) || (s.shakeOn && s.shakeAmount > 0))));
+// Time holds while a shape is being dragged, so it stays under the pointer.
+const moving = () => state.playing && hasMotion() && !exporting && !(drag && drag.kind !== 'pan');
+function tick(now) {
+  const dt = lastTick ? Math.min((now - lastTick) / 1000, .1) : 0;
+  lastTick = now;
+  if (moving()) {
+    time += dt;
+    draw();
+  }
+  requestAnimationFrame(tick);
+}
+
+/* ---------- Canvas interaction ---------- */
+let drag = null;
+function pointerPos(e) {
+  const r = overlay.getBoundingClientRect();
+  const { z, ox, oy } = camera();
+  return [(e.clientX - r.left - ox) / z, (e.clientY - r.top - oy) / z];
+}
+function hitTest(px, py) {
+  const list = state.shapes.map((s, i) => compileShape(s, i, viewW, viewH));
+  const current = list[state.active];
+  const { z } = camera();
+  if (state.guides && current && current.source.visible) {
+    const h = handlePoints(current);
+    if (Math.hypot(px - h.size[0], py - h.size[1]) <= 11 / z) return { kind: 'size', c: current, angle: h.angle };
+    if (Math.hypot(px - h.fall[0], py - h.fall[1]) <= 11 / z) return { kind: 'fall', c: current, angle: h.angle };
+  }
+  for (let i = list.length - 1; i >= 0; i--) {
+    const c = list[i];
+    if (c.source.visible && signedDistance(c, px, py) <= 6 / z) return { kind: 'move', c };
+  }
+  return null;
+}
+overlay.addEventListener('pointerdown', e => {
+  const [px, py] = pointerPos(e);
+  const hit = hitTest(px, py);
+  if (!hit) {
+    drag = { kind: 'pan', cx: e.clientX, cy: e.clientY, panX: state.panX, panY: state.panY };
+    overlay.setPointerCapture(e.pointerId);
+    overlay.style.cursor = 'grabbing';
+    return;
+  }
+  if (state.active !== hit.c.index) { state.active = hit.c.index; syncAll(); }
+  drag = { kind: hit.kind, angle: hit.angle, s: hit.c.source, ox: px - hit.c.cx, oy: py - hit.c.cy };
+  overlay.setPointerCapture(e.pointerId);
+  overlay.style.cursor = hit.kind === 'move' ? 'grabbing' : 'ew-resize';
+  requestDraw();
+});
+overlay.addEventListener('pointermove', e => {
+  const [px, py] = pointerPos(e);
+  if (!drag) {
+    const hit = hitTest(px, py);
+    overlay.style.cursor = !hit || hit.kind === 'move' ? 'grab' : 'ew-resize';
+    return;
+  }
+  if (drag.kind === 'pan') {
+    state.panX = drag.panX + e.clientX - drag.cx;
+    state.panY = drag.panY + e.clientY - drag.cy;
+    requestDraw(); save();
+    return;
+  }
+  const s = drag.s;
+  const c = compileShape(s, state.shapes.indexOf(s), viewW, viewH);
+  const short = Math.min(viewW, viewH) * state.shapesScale / 100;
+  if (drag.kind === 'move') {
+    // The drop point becomes the shape's position, and its place in the loop shifts so it stays there.
+    s.x = clamp((px - drag.ox - c.shakeX) / viewW * 100, -100, 200);
+    s.y = clamp((py - drag.oy - c.shakeY) / viewH * 100, -100, 200);
+    if (state.motionOn && s.travelOn) {
+      const done = travelDone(s, loopPhase());
+      s.shift = (1 - (done - Math.floor(done))) % 1 * 100;
+    }
+  } else {
+    const h = handlePoints(c, drag.angle);
+    const along = (px - c.cx) * h.wx + (py - c.cy) * h.wy;
+    if (drag.kind === 'size') {
+      const perUnit = h.edge / Math.max(c.size, .001);
+      s.size = clamp(along / perUnit / c.grow / short * 100, 1, 100);
+    } else {
+      s.falloff = clamp((along - h.edge) / short * 100, 0, 100);
+    }
+  }
+  syncControls();
+  requestDraw();
+  save();
+});
+const endDrag = () => { drag = null; overlay.style.cursor = 'grab'; };
+overlay.addEventListener('pointerup', endDrag);
+overlay.addEventListener('pointercancel', endDrag);
+
+/* ---------- Zoom and quick resize ---------- */
+function setZoom(next, ax = viewW / 2, ay = viewH / 2) {
+  const { z, ox, oy } = camera();
+  const wx = (ax - ox) / z, wy = (ay - oy) / z;
+  const zoom = clamp(next, zoomFloor(), 8);
+  state.zoom = zoom;
+  state.panX = ax - viewW / 2 - (wx - viewW / 2) * zoom;
+  state.panY = ay - viewH / 2 - (wy - viewH / 2) * zoom;
+  syncControls(); requestDraw(); save();
+}
+function fitView() {
+  state.zoom = 1; state.panX = 0; state.panY = 0;
+  syncControls(); requestDraw(); save();
+}
+function resizeActive(factor) {
+  const s = activeShape();
+  if (!s) return;
+  s.size = clamp(s.size * factor, 1, 100);
+  syncControls(); requestDraw(); save();
+}
+overlay.addEventListener('wheel', e => {
+  e.preventDefault();
+  const delta = e.deltaY || e.deltaX;
+  if (e.shiftKey) { resizeActive(Math.exp(-delta * .002)); return; }
+  const r = overlay.getBoundingClientRect();
+  // Pinch gestures arrive as ctrl + wheel with much smaller deltas.
+  setZoom(camera().z * Math.exp(-delta * (e.ctrlKey ? .01 : .0015)), e.clientX - r.left, e.clientY - r.top);
+}, { passive: false });
+window.addEventListener('keydown', e => {
+  const t = e.target;
+  if (!exporting && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
+    e.preventDefault();
+    duplicateActive();
+    return;
+  }
+  if (!exporting && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    savePattern().catch(showPatternError);
+    return;
+  }
+  if (exporting || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (t.matches && t.matches('input:not([type=range]):not([type=color]), textarea')) return;
+  if (e.key === '[') resizeActive(.9);
+  else if (e.key === ']') resizeActive(1 / .9);
+  else if (e.key === '-') setZoom(camera().z / 1.25);
+  else if (e.key === '=' || e.key === '+') setZoom(camera().z * 1.25);
+  else if (e.key === '0') fitView();
+  else return;
+  e.preventDefault();
+});
+
+/* ---------- UI helpers ---------- */
+const $ = id => document.getElementById(id);
+function el(tag, props = {}, ...kids) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === 'class') node.className = v;
+    else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
+    else if (k in node) node[k] = v;
+    else node.setAttribute(k, v);
+  }
+  node.append(...kids);
+  return node;
+}
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function shapeIcon(type, assetId) {
+  if (type === 'custom') {
+    const icon = document.createElement('span');
+    icon.className = 'mask-icon';
+    const data = assets.get(assetId)?.data;
+    if (data) icon.style.webkitMaskImage = icon.style.maskImage = `url("${data}")`;
+    return icon;
+  }
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '-1.1 -1.1 2.2 2.2');
+  svg.setAttribute('aria-hidden', 'true');
+  const poly = document.createElementNS(SVG_NS, 'polygon');
+  poly.setAttribute('points', SHAPES[type].pts.map(p => p.join(',')).join(' '));
+  svg.append(poly);
+  return svg;
+}
+const shapeName = s => s.type === 'custom' ? (assets.get(s.assetId)?.name || 'Upload') : SHAPES[s.type].name;
+
+const controls = [];
+let uid = 0;
+function changed() { syncControls(); requestDraw(); save(); }
+
+function addSlider(host, d) {
+  const id = 'c' + (++uid);
+  const fmt = v => String(+(+v).toFixed(d.step < 1 ? 1 : 0));
+  const range = el('input', { type: 'range', id, min: d.min, max: d.max, step: d.step || 1, title: 'Double-click to reset' });
+  const num = el('input', { type: 'number', min: d.min, max: d.max, step: d.step || 1, 'aria-label': d.label + ' value' });
+  const commit = raw => {
+    const v = parseFloat(raw);
+    if (Number.isNaN(v)) return;
+    d.set(clamp(v, d.min, d.max));
+    changed();
+  };
+  range.addEventListener('input', () => commit(range.value));
+  range.addEventListener('dblclick', () => commit(d.reset));
+  num.addEventListener('input', () => commit(num.value));
+  num.addEventListener('blur', () => syncControls());
+  host.append(el('div', { class: 'ctl' },
+    el('div', { class: 'ctl-top' },
+      el('label', { htmlFor: id }, d.label),
+      el('span', { class: 'num' }, num, el('span', { class: 'unit' }, d.unit || ''))),
+    range));
+  controls.push({
+    sync() {
+      const v = d.get();
+      if (v === undefined) return;
+      range.value = v;
+      range.style.setProperty('--p', ((v - d.min) / (d.max - d.min) * 100) + '%');
+      if (document.activeElement !== num) num.value = fmt(v);
+    },
+  });
+}
+function addSegment(host, label, options, get, set) {
+  const buttons = options.map(([value, text, full]) =>
+    el('button', { type: 'button', onclick: () => { set(value); changed(); }, ...(full ? { title: full, 'aria-label': full } : {}) }, text));
+  host.append(el('div', { class: 'seg' },
+    el('div', { class: 'seg-label' }, label),
+    el('div', { class: 'seg-opts', role: 'group', 'aria-label': label }, ...buttons)));
+  controls.push({
+    sync() {
+      const v = get();
+      buttons.forEach((btn, i) => btn.setAttribute('aria-pressed', String(options[i][0] === v)));
+    },
+  });
+}
+const stateSlider = (host, key, label, min, max, unit, step) => addSlider(host, {
+  label, min, max, unit, step, reset: defaults()[key],
+  get: () => state[key], set: v => { state[key] = v; },
+});
+const shapeSlider = (host, key, label, min, max, unit) => addSlider(host, {
+  label, min, max, unit, reset: shapeDefaults[key],
+  get: () => activeShape()?.[key],
+  set: v => { const s = activeShape(); if (s) setShapeValue(s, key, v); },
+});
+
+/* ---------- Build controls ---------- */
+const tex = $('texture-controls');
+stateSlider(tex, 'tile', 'Tile size', 16, 240, 'px');
+stateSlider(tex, 'base', 'Base scale', 0, 200, '%');
+stateSlider(tex, 'spacingX', 'Spacing across', 60, 300, '%');
+stateSlider(tex, 'spacingY', 'Spacing down', 60, 300, '%');
+stateSlider(tex, 'stagger', 'Row offset', 0, 100, '%');
+stateSlider(tex, 'gridAngle', 'Grid angle', -90, 90, '°');
+stateSlider(tex, 'glyphAngle', 'Crescent angle', -180, 180, '°');
+addSegment(tex, 'Mirror crescents', [['none', 'Off'], ['rows', 'Rows'], ['checker', 'Checker']],
+  () => state.alternate, v => { state.alternate = v; });
+
+addSegment($('mode-host'), 'Scale from', [['solid', 'Whole shape'], ['edge', 'Outline only']],
+  () => activeShape()?.mode, v => { const s = activeShape(); if (s) s.mode = v; });
+
+const fo = $('falloff-controls');
+shapeSlider(fo, 'peak', 'Scale at shape', 0, 400, '%');
+shapeSlider(fo, 'falloff', 'Fall-off distance', 0, 100, '%');
+shapeSlider(fo, 'curve', 'Fall-off curve', -100, 100, '');
+shapeSlider(fo, 'steps', 'Bands (0 = smooth)', 0, 12, '');
+
+const pl = $('place-controls');
+shapeSlider(pl, 'x', 'Position across', -100, 200, '%');
+shapeSlider(pl, 'y', 'Position down', -100, 200, '%');
+shapeSlider(pl, 'size', 'Size', 1, 100, '%');
+shapeSlider(pl, 'stretch', 'Stretch', 20, 300, '%');
+shapeSlider(pl, 'rotation', 'Rotation', -180, 180, '°');
+
+const mo = $('motion-controls');
+stateSlider(mo, 'loop', 'Loop length', 1, 30, 's');
+const shapeMotion = el('div', { id: 'shape-motion' });
+mo.append(shapeMotion);
+const motionTarget = el('p', { id: 'motion-target' });
+shapeMotion.append(motionTarget);
+
+// A heading with its own switch; the controls below dim while it is off.
+function addSwitchGroup(host, label, key, owner = activeShape, onToggle) {
+  const text = el('span', {}, 'Off');
+  const sw = el('button', {
+    class: 'switch', type: 'button', role: 'switch', 'aria-label': label,
+    onclick: () => {
+      const cur = owner();
+      if (!cur) return;
+      if (owner === activeShape) setShapeValue(cur, key, !cur[key]);
+      else cur[key] = !cur[key];
+      onToggle?.(cur[key]);
+      changed();
+    },
+  }, el('span', { class: 'track' }), text);
+  const body = el('div', { class: 'group-body' });
+  host.append(el('div', { class: 'group-head' }, el('span', {}, label), sw), body);
+  controls.push({
+    sync() {
+      const on = !!owner()?.[key];
+      sw.setAttribute('aria-checked', String(on));
+      text.textContent = on ? 'On' : 'Off';
+      body.classList.toggle('off', !on);
+    },
+  });
+  return body;
+}
+const setShape = key => v => { const cur = activeShape(); if (cur) setShapeValue(cur, key, v); };
+
+const linkHost = el('div', { id: 'link-motion' });
+shapeMotion.insertBefore(linkHost, motionTarget);
+const linkNote = el('p', { id: 'link-note', role: 'status', hidden: true });
+function linkMotion(on) {
+  syncAll();
+  const source = activeShape();
+  if (!on || !source) return;
+  const motion = pickMotion(source);
+  const before = state.shapes.map(s => [s, pickMotion(s)]);
+  const changedCount = before.filter(([s, old]) => MOTION_KEYS.some(key => old[key] !== motion[key])).length;
+  for (const s of state.shapes) Object.assign(s, motion);
+  if (!changedCount) return;
+  // Undo stays available until the next shape change or selection, which clears this note.
+  linkNote.hidden = false;
+  linkNote.replaceChildren(`Copied ${shapeName(source)}'s motion to ${changedCount} other shape${changedCount === 1 ? '' : 's'}.`,
+    el('button', {
+      type: 'button',
+      onclick: () => {
+        for (const [s, old] of before) Object.assign(s, old);
+        state.motionLinked = false;
+        syncAll(); requestDraw(); save();
+      },
+    }, 'Undo'));
+}
+addSwitchGroup(linkHost, 'Apply to all shapes', 'motionLinked', () => state, linkMotion).append(linkNote);
+
+const travelBody = addSwitchGroup(shapeMotion, 'Travel', 'travelOn');
+addSegment(travelBody, 'Direction', [
+  ['lr', '\u2192', 'Left to right'], ['rl', '\u2190', 'Right to left'],
+  ['tb', '\u2193', 'Top to bottom'], ['bt', '\u2191', 'Bottom to top'],
+], () => activeShape()?.dir, setShape('dir'));
+addSegment(travelBody, 'Path', [['wrap', 'Wrap around'], ['bounce', 'Back and forth']],
+  () => activeShape()?.path, setShape('path'));
+shapeSlider(travelBody, 'travel', 'Passes per loop', 1, 4, '');
+shapeSlider(travelBody, 'shift', 'Offset in loop', 0, 100, '%');
+
+const rippleBody = addSwitchGroup(shapeMotion, 'Ripple', 'rippleOn');
+shapeSlider(rippleBody, 'ripples', 'Number of ripples', 1, 12, '');
+shapeSlider(rippleBody, 'rippleStrength', 'Strength', 0, 100, '%');
+shapeSlider(rippleBody, 'rippleReach', 'Reach', 5, 150, '%');
+shapeSlider(rippleBody, 'rippleWidth', 'Width', 1, 40, '%');
+shapeSlider(rippleBody, 'rippleSpeed', 'Speed (cycles per loop)', 1, 8, '');
+
+shapeMotion.append(el('div', { class: 'sub-label' }, 'Rotation'));
+shapeSlider(shapeMotion, 'spin', 'Spin (turns per loop)', -4, 4, '');
+
+shapeMotion.append(el('div', { class: 'sub-label energy-label' }, 'Energy'));
+addSegment(shapeMotion, 'Feel (travel, ripple and spin)', [
+  ['steady', 'Steady', 'Constant speed'], ['flow', 'Ease', 'Speeds up and slows down'],
+  ['snap', 'Snap', 'Holds, then dashes'], ['whip', 'Overshoot', 'Dashes past, then settles back'],
+], () => activeShape()?.feel, setShape('feel'));
+const feelBody = el('div', { class: 'group-body' });
+shapeMotion.append(feelBody);
+shapeSlider(feelBody, 'feelAmount', 'Feel amount', 0, 100, '%');
+controls.push({ sync() { feelBody.classList.toggle('off', activeShape()?.feel === 'steady'); } });
+
+const beatBody = addSwitchGroup(shapeMotion, 'Beat', 'beatOn');
+addSegment(beatBody, 'Beat shape', [['hit', 'Hit'], ['smooth', 'Swell']],
+  () => activeShape()?.beatFeel, setShape('beatFeel'));
+shapeSlider(beatBody, 'beats', 'Beats per loop', 1, 16, '');
+shapeSlider(beatBody, 'beatGrow', 'Shape size kick', -100, 200, '%');
+shapeSlider(beatBody, 'beatScale', 'Crescent scale kick', -100, 200, '%');
+
+const shakeBody = addSwitchGroup(shapeMotion, 'Shake', 'shakeOn');
+shapeSlider(shakeBody, 'shakeAmount', 'Amount', 0, 30, '%');
+shapeSlider(shakeBody, 'shakeRate', 'Rate (per loop)', 1, 32, '');
+
+const trailBody = addSwitchGroup(shapeMotion, 'Trail', 'trailOn');
+shapeSlider(trailBody, 'trailCount', 'Echoes', 1, 8, '');
+shapeSlider(trailBody, 'trailGap', 'Echo spacing', 1, 25, '%');
+
+const reactBody = addSwitchGroup(shapeMotion, 'Crescent reaction', 'reactOn');
+shapeSlider(reactBody, 'twist', 'Twist', -360, 360, '°');
+shapeSlider(reactBody, 'push', 'Push (minus pulls in)', -100, 100, '%');
+
+const waveBody = addSwitchGroup(mo, 'Texture wave (all crescents)', 'waveOn', () => state);
+addSegment(waveBody, 'Pattern', [['sweep', 'Sweep'], ['radiate', 'Radiate'], ['sparkle', 'Sparkle']],
+  () => state.wavePattern, v => { state.wavePattern = v; });
+stateSlider(waveBody, 'waveAmount', 'Amount', 0, 100, '%');
+stateSlider(waveBody, 'waveRate', 'Speed (cycles per loop)', 1, 12, '');
+stateSlider(waveBody, 'waveDensity', 'Waves across frame', 1, 16, '');
+
+stateSlider($('all-host'), 'shapesScale', 'Scale all shapes', 10, 300, '%');
+
+const ex = $('export-controls');
+addSegment(ex, 'Frame', [['window', 'Window'], ['16:9', '16:9'], ['1:1', '1:1'], ['4:5', '4:5'], ['9:16', '9:16']],
+  () => state.frame, v => { state.frame = v; resize(); });
+ex.append(el('div', { class: 'sub-label' }, 'Still image'));
+stateSlider(ex, 'stillLong', 'PNG long side', 1000, 16000, 'px', 500);
+ex.append(el('p', { id: 'still-info', role: 'status' }));
+ex.append(el('div', { class: 'sub-label' }, 'Motion'));
+addSegment(ex, 'Size (short side)', [[720, '720'], [1080, '1080'], [1440, '1440'], [2160, '2160']],
+  () => state.outSize, v => { state.outSize = v; });
+addSegment(ex, 'Frame rate', [[24, '24'], [30, '30'], [60, '60']],
+  () => state.fps, v => { state.fps = v; });
+addSegment(ex, 'Motion format', [['mp4', 'MP4'], ['gif', 'GIF'], ['png', 'PNG sequence']],
+  () => state.format, v => { state.format = v; });
+addSegment(ex, 'Background in PNG, sequence and SVG', [[false, 'Colour'], [true, 'Transparent']],
+  () => state.transparent, v => { state.transparent = v; });
+
+function renderTypeGrid() {
+  const s = activeShape();
+  const button = (type, assetId, label) => {
+    const on = s && s.type === type && (type !== 'custom' || s.assetId === assetId);
+    const btn = el('button', {
+      type: 'button', title: label, 'aria-label': label,
+      onclick: () => {
+        const cur = activeShape();
+        if (!cur) return;
+        cur.type = type;
+        if (assetId) cur.assetId = assetId;
+        syncAll(); requestDraw(); save();
+      },
+    }, shapeIcon(type, assetId));
+    btn.setAttribute('aria-pressed', String(!!on));
+    return btn;
+  };
+  $('type-grid').replaceChildren(
+    ...Object.entries(SHAPES).map(([type, def]) => button(type, null, def.name)),
+    ...state.assets.map(a => button('custom', a.id, a.name)));
+  $('remove-upload').hidden = !(s && s.type === 'custom');
+}
+
+addSegment($('overlap-host'), 'Where shapes overlap', [['strongest', 'Strongest wins'], ['add', 'Add together']],
+  () => state.overlap, v => { state.overlap = v; });
+
+function renderLayers() {
+  const host = $('layers');
+  const focusKey = document.activeElement?.dataset?.focusKey;
+  host.replaceChildren();
+  if (!state.shapes.length) {
+    host.append(el('p', { class: 'empty' }, 'No shapes. The texture is showing at its base scale.'));
+    return;
+  }
+  const counts = {};
+  state.shapes.forEach((s, i) => {
+    counts[s.type] = (counts[s.type] || 0) + 1;
+    const total = state.shapes.filter(o => o.type === s.type).length;
+    const name = shapeName(s) + (total > 1 ? ' ' + counts[s.type] : '');
+    const main = el('button', {
+      class: 'layer-main', type: 'button',
+      onclick: () => { state.active = i; syncAll(); requestDraw(); save(); },
+    }, shapeIcon(s.type, s.assetId), name);
+    main.dataset.focusKey = 'sel' + i;
+    if (i === state.active) main.setAttribute('aria-current', 'true');
+    const eye = el('button', {
+      class: 'btn quiet small', type: 'button', 'aria-label': (s.visible ? 'Hide ' : 'Show ') + name,
+      onclick: () => { s.visible = !s.visible; syncAll(); requestDraw(); save(); },
+    }, s.visible ? 'Hide' : 'Show');
+    eye.dataset.focusKey = 'eye' + i;
+    const del = el('button', {
+      class: 'btn quiet small', type: 'button', 'aria-label': 'Delete ' + name,
+      onclick: () => {
+        state.shapes.splice(i, 1);
+        state.active = clamp(state.active > i ? state.active - 1 : state.active, 0, Math.max(state.shapes.length - 1, 0));
+        syncAll(); requestDraw(); save();
+      },
+    }, 'Delete');
+    host.append(el('div', { class: 'layer' + (s.visible ? '' : ' off') }, main, eye, del));
+  });
+  if (focusKey) host.querySelector(`[data-focus-key="${focusKey}"]`)?.focus();
+}
+
+function drawCurve() {
+  const s = activeShape();
+  if (!s) return;
+  const W = 280, H = 64, pad = 6;
+  const top = Math.max(s.peak, state.base, 1);
+  const g = curveGamma(s.curve);
+  let line = '';
+  for (let i = 0; i <= 200; i++) {
+    const t = 1 - i / 200;
+    const v = state.base + (s.peak - state.base) * shapeResponse(t, g, s.steps);
+    const x = i / 200 * W, y = H - pad - clamp(v / top, 0, 1) * (H - pad * 2);
+    line += (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
+  }
+  $('curve-line').setAttribute('d', line);
+  $('curve-fill').setAttribute('d', line + `L${W} ${H}L0 ${H}Z`);
+}
+
+function syncColours() {
+  for (const key of ['fg', 'bg']) {
+    $(key).value = state[key].toLowerCase();
+    const hex = $(key + '-hex');
+    if (document.activeElement !== hex) hex.value = state[key].toUpperCase();
+    hex.removeAttribute('aria-invalid');
+  }
+}
+function syncControls() {
+  controls.forEach(c => c.sync());
+  syncColours();
+  drawCurve();
+  $('guides').setAttribute('aria-pressed', String(state.guides));
+  const { z } = camera();
+  const zs = $('zoom-slider');
+  const pos = Math.log(z / .1) / Math.log(80) * 1000;
+  zs.value = pos;
+  zs.style.setProperty('--p', pos / 10 + '%');
+  $('zoom-fit').textContent = Math.round(z * 100) + '%';
+  $('play').textContent = state.playing ? 'Pause' : 'Play';
+  $('play').setAttribute('aria-pressed', String(!state.playing));
+  $('motion-on').setAttribute('aria-checked', String(state.motionOn));
+  $('motion-on-text').textContent = state.motionOn ? 'On' : 'Off';
+  $('motion-controls').classList.toggle('off', !state.motionOn);
+  $('play').disabled = !hasMotion();
+  syncExportInfo();
+}
+function syncAll() {
+  const s = activeShape();
+  $('shape-controls').hidden = !s;
+  $('shape-controls').style.display = s ? '' : 'none';
+  $('overlap-host').style.display = state.shapes.length > 1 ? '' : 'none';
+  $('overlap-host').style.marginTop = '12px';
+  $('add-shape').disabled = state.shapes.length >= MAX_SHAPES;
+  $('duplicate-shape').disabled = !s || state.shapes.length >= MAX_SHAPES;
+  $('shape-motion').hidden = !s;
+  linkNote.hidden = true;
+  if (s) {
+    motionTarget.textContent = state.motionLinked
+      ? `Settings below apply to all shapes, except Offset in loop, which stays with the selected shape: ${shapeName(s)}.`
+      : `Settings below apply to the selected shape: ${shapeName(s)}.`;
+  }
+  $('all-host').hidden = !state.shapes.length;
+  renderTypeGrid();
+  renderLayers();
+  syncControls();
+}
+
+/* ---------- Colours ---------- */
+for (const key of ['fg', 'bg']) {
+  $(key).addEventListener('input', e => { state[key] = e.target.value.toUpperCase(); changed(); });
+  const hex = $(key + '-hex');
+  hex.addEventListener('input', () => {
+    let v = hex.value.trim();
+    if (v && v[0] !== '#') v = '#' + v;
+    if (/^#[0-9a-f]{6}$/i.test(v)) {
+      state[key] = v.toUpperCase();
+      hex.removeAttribute('aria-invalid');
+      $(key).value = v.toLowerCase();
+      requestDraw(); save();
+    } else {
+      hex.setAttribute('aria-invalid', 'true');
+    }
+  });
+  hex.addEventListener('blur', syncColours);
+}
+$('swap').addEventListener('click', () => {
+  [state.fg, state.bg] = [state.bg, state.fg];
+  changed();
+});
+const PALETTES = [
+  ['#F4EFE3', '#1F2BE0'], ['#111111', '#EFEAE0'], ['#FFF1DC', '#E8432D'],
+  ['#D6F25C', '#0E3B2E'], ['#FFB3C7', '#2A0F3A'], ['#FFFFFF', '#000000'],
+];
+for (const [fg, bg] of PALETTES) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', `-145 0 ${VB_H} ${VB_H}`);
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', GLYPH_D);
+  path.setAttribute('fill', fg);
+  svg.append(path);
+  const btn = el('button', {
+    class: 'swatch', type: 'button', 'aria-label': `Use object ${fg} on background ${bg}`, title: `${fg} on ${bg}`,
+    onclick: () => { state.fg = fg; state.bg = bg; changed(); },
+  }, svg);
+  btn.style.background = bg;
+  $('swatches').append(btn);
+}
+
+/* ---------- Actions ---------- */
+// The copy keeps every setting and lands slightly offset so both are visible.
+function duplicateActive() {
+  const s = activeShape();
+  if (!s || state.shapes.length >= MAX_SHAPES) return;
+  state.shapes.splice(state.active + 1, 0, { ...s, x: s.x + 6, y: s.y + 6 });
+  state.active += 1;
+  syncAll(); requestDraw(); save();
+}
+$('duplicate-shape').addEventListener('click', duplicateActive);
+$('add-shape').addEventListener('click', () => {
+  if (state.shapes.length >= MAX_SHAPES) return;
+  const from = activeShape() || shapeDefaults;
+  const n = state.shapes.length;
+  const spots = [[28, 30], [72, 70], [72, 30], [28, 70], [50, 50], [50, 22]];
+  const spot = spots[n % spots.length];
+  state.shapes.push({ ...shapeDefaults, ...(state.motionLinked ? pickMotion(from) : {}), peak: from.peak, falloff: from.falloff, size: 18, x: spot[0], y: spot[1] });
+  state.active = n;
+  syncAll(); requestDraw(); save();
+});
+$('guides').addEventListener('click', () => { state.guides = !state.guides; changed(); });
+$('play').addEventListener('click', () => { state.playing = !state.playing; changed(); });
+$('motion-on').addEventListener('click', () => {
+  state.motionOn = !state.motionOn;
+  state.playing = true;
+  time = 0;
+  changed();
+});
+$('zoom-out').addEventListener('click', () => setZoom(camera().z / 1.25));
+$('zoom-in').addEventListener('click', () => setZoom(camera().z * 1.25));
+$('zoom-fit').addEventListener('click', fitView);
+$('zoom-slider').addEventListener('input', e => setZoom(.1 * Math.pow(80, e.target.value / 1000)));
+$('shape-down').addEventListener('click', () => resizeActive(.9));
+$('shape-up').addEventListener('click', () => resizeActive(1 / .9));
+
+$('upload').addEventListener('click', () => $('upload-input').click());
+$('upload-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (file) handleUpload(file);
+});
+$('remove-upload').addEventListener('click', () => {
+  const s = activeShape();
+  if (!s || s.type !== 'custom') return;
+  const id = s.assetId;
+  state.assets = state.assets.filter(a => a.id !== id);
+  assets.delete(id);
+  for (const key of [...fieldCache.keys()]) if (key.startsWith(id + '|')) fieldCache.delete(key);
+  for (const o of state.shapes) if (o.type === 'custom' && o.assetId === id) { o.type = 'circle'; delete o.assetId; }
+  syncAll(); requestDraw(); save();
+});
+stage.addEventListener('dragover', e => { e.preventDefault(); stage.classList.add('dropping'); });
+stage.addEventListener('dragleave', e => { if (e.target === stage || !stage.contains(e.relatedTarget)) stage.classList.remove('dropping'); });
+stage.addEventListener('drop', e => {
+  e.preventDefault();
+  stage.classList.remove('dropping');
+  const file = e.dataTransfer.files[0];
+  if (file) handleUpload(file);
+});
+$('reset').addEventListener('click', () => {
+  const before = copyOf(state), beforeTime = time;
+  state = defaults();
+  assets.clear();
+  fieldCache.clear();
+  time = 0;
+  syncAll(); resize(); save();
+  $('pat-name').value = nextPatternName();
+  patternMessage('Everything was reset.', async () => {
+    await applySettings(before, before.patternId, beforeTime);
+    $('pat-name').value = currentPattern()?.name || nextPatternName();
+    patternMessage('Settings restored.');
+  });
+  syncPatternUi();
+});
+
+/* ---------- Saved patterns: kept in IndexedDB, with a file backup ---------- */
+const copyOf = value => JSON.parse(JSON.stringify(value));
+let patterns = [], patternBaseline = null, patternsReady = false, dbPromise = null;
+function openPatternDB() {
+  dbPromise ||= new Promise((resolve, reject) => {
+    const open = indexedDB.open('crescent-field', 2);
+    open.onupgradeneeded = () => {
+      const db = open.result;
+      if (!db.objectStoreNames.contains('patterns')) db.createObjectStore('patterns', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
+    };
+    open.onsuccess = () => {
+      // A newer copy of the app in another tab may need to upgrade the database.
+      open.result.onversionchange = () => { open.result.close(); dbPromise = null; };
+      resolve(open.result);
+    };
+    open.onerror = () => reject(open.error);
+  });
+  return dbPromise;
+}
+async function patternStore(mode, action, storeName = 'patterns') {
+  const db = await openPatternDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, mode);
+    const request = action(tx.objectStore(storeName));
+    tx.oncomplete = () => resolve(request.result);
+    tx.onerror = tx.onabort = () => reject(tx.error);
+  });
+}
+const metaGet = key => patternStore('readonly', store => store.get(key), 'meta');
+const metaSet = (key, value) => patternStore('readwrite', store => value === undefined ? store.delete(key) : store.put(value, key), 'meta');
+const newPatternId = () => 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+/* ---------- Pattern folder: every pattern is also a file in a folder the person picks ----------
+   The browser copy is kept too, so the list still works while the folder is unavailable. */
+const canUseFolder = 'showDirectoryPicker' in window;
+const PATTERN_EXT = '.crescent.json';
+let folder = null;              // { handle, tag, ready, problem }
+let folderFiles = new Map();    // lower-case file name -> pattern id
+let folderJobs = Promise.resolve();
+const folderJob = job => (folderJobs = folderJobs.catch(() => {}).then(job));
+const folderUsable = () => !!folder?.ready;
+
+function patternFileText(rec) {
+  const { file, folderTag, ...pattern } = rec;
+  return JSON.stringify({ app: 'crescent-field', kind: 'pattern', version: 1, pattern });
+}
+function patternFileName(rec) {
+  if (rec.file && rec.folderTag === folder.tag && folderFiles.get(rec.file.toLowerCase()) === rec.id) return rec.file;
+  const base = rec.name.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-').replace(/^[.\s]+|[.\s]+$/g, '') || 'Pattern';
+  let name = base + PATTERN_EXT;
+  for (let n = 2; folderFiles.has(name.toLowerCase()) && folderFiles.get(name.toLowerCase()) !== rec.id; n++) {
+    name = `${base} (${n})${PATTERN_EXT}`;
+  }
+  return name;
+}
+async function writePatternFile(rec, name = patternFileName(rec)) {
+  const handle = await folder.handle.getFileHandle(name, { create: true });
+  const out = await handle.createWritable();
+  await out.write(patternFileText(rec));
+  await out.close();
+  folderFiles.set(name.toLowerCase(), rec.id);
+  rec.file = name;
+  rec.folderTag = folder.tag;
+}
+async function deletePatternFile(rec) {
+  if (!rec.file || rec.folderTag !== folder.tag) return;
+  try { await folder.handle.removeEntry(rec.file); }
+  catch (err) { if (err.name !== 'NotFoundError') throw err; }
+  folderFiles.delete(rec.file.toLowerCase());
+}
+// Patterns deleted while the folder was out of reach; their files are removed once it is back.
+async function markDeleted(id, deleted) {
+  const ids = new Set(await metaGet('deleted') || []);
+  if (deleted) ids.add(id); else ids.delete(id);
+  await metaSet('deleted', [...ids]);
+}
+async function putPattern(rec) {
+  rec = { ...rec };
+  if (folderUsable()) {
+    try { await folderJob(() => writePatternFile(rec)); } catch (err) { folderLost(err); }
+  }
+  await patternStore('readwrite', store => store.put(rec));
+  if (folder) await markDeleted(rec.id, false);
+  return rec;
+}
+async function removePattern(id) {
+  const rec = patterns.find(p => p.id === id);
+  let fileGone = !folder || !rec?.file;
+  if (rec && folderUsable()) {
+    try { await folderJob(() => deletePatternFile(rec)); fileGone = true; } catch (err) { folderLost(err); }
+  }
+  if (!fileGone) await markDeleted(id, true);
+  await patternStore('readwrite', store => store.delete(id));
+}
+// Checks and tidies a pattern read from a file. Returns null if it is not one.
+function cleanRecord(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  let settings;
+  try { settings = normaliseState(copyOf(raw.settings)); } catch { return null; }
+  return {
+    id: typeof raw.id === 'string' && raw.id ? raw.id : newPatternId(),
+    name: String(raw.name || 'Pattern').trim().slice(0, 40) || 'Pattern',
+    savedAt: Number(raw.savedAt) || Date.now(), time: Number(raw.time) || 0,
+    thumb: /^data:image\//.test(raw.thumb) ? raw.thumb : '', settings,
+  };
+}
+async function readFolder() {
+  const found = [];
+  for await (const [name, handle] of folder.handle.entries()) {
+    if (handle.kind !== 'file' || !name.toLowerCase().endsWith(PATTERN_EXT)) continue;
+    try {
+      const data = JSON.parse(await (await handle.getFile()).text());
+      const rec = data?.app === 'crescent-field' && cleanRecord(data.pattern);
+      if (rec) found.push({ name, rec });
+    } catch { /* Not a pattern file: leave it alone. */ }
+  }
+  return found;
+}
+// Brings the browser copy and the folder into line. The folder wins when it has a newer version.
+async function syncFolder() {
+  const found = await readFolder();
+  folderFiles = new Map(found.map(f => [f.name.toLowerCase(), f.rec.id]));
+  const stored = await patternStore('readonly', store => store.getAll());
+  const byId = new Map(stored.map(p => [p.id, p]));
+  const deleted = new Set(await metaGet('deleted') || []);
+  const names = new Set(stored.map(p => p.name.toLowerCase()));
+  const seen = new Set();
+  const put = rec => patternStore('readwrite', store => store.put(rec));
+  let added = 0, removed = 0;
+  for (const { name, rec } of found) {
+    if (deleted.has(rec.id)) {
+      await deletePatternFile({ ...rec, file: name, folderTag: folder.tag });
+      continue;
+    }
+    const mine = byId.get(rec.id);
+    if (mine && !seen.has(rec.id)) {
+      seen.add(rec.id);
+      if (mine.savedAt > rec.savedAt) await writePatternFile(mine, name);
+      else if (mine.savedAt < rec.savedAt) Object.assign(mine, rec);
+      mine.file = name; mine.folderTag = folder.tag;
+      await put(mine);
+      continue;
+    }
+    // New to this browser, or a copy of another pattern's file made in the folder.
+    const copied = seen.has(rec.id);
+    if (copied) rec.id = newPatternId();
+    let label = rec.name;
+    for (let n = 2; names.has(label.toLowerCase()); n++) label = `${rec.name.slice(0, 34)} (${n})`;
+    const renamed = label !== rec.name;
+    rec.name = label;
+    names.add(label.toLowerCase());
+    seen.add(rec.id);
+    if (copied || renamed) await writePatternFile(rec, name);
+    await put({ ...rec, file: name, folderTag: folder.tag });
+    added++;
+  }
+  for (const mine of stored) {
+    if (seen.has(mine.id)) continue;
+    if (mine.folderTag === folder.tag && mine.file) {
+      // It was in this folder and its file has gone, so it was deleted outside the app.
+      await patternStore('readwrite', store => store.delete(mine.id));
+      removed++;
+    } else {
+      await writePatternFile(mine);
+      await put(mine);
+    }
+  }
+  if (deleted.size) await metaSet('deleted', []);
+  return { added, removed };
+}
+function folderLost(err) {
+  if (!folder) return;
+  folder.ready = false;
+  folder.problem = err?.name === 'NotFoundError' ? 'missing' : 'access';
+  renderFolder();
+}
+async function runFolderSync(quiet) {
+  if (!folderUsable()) return;
+  try {
+    const { added, removed } = await folderJob(syncFolder);
+    await refreshPatterns();
+    setBaseline(currentPattern());
+    syncPatternUi();
+    const notes = [];
+    if (added) notes.push(`${added} new pattern${added === 1 ? '' : 's'} found in the folder.`);
+    if (removed) notes.push(`${removed} removed because ${removed === 1 ? 'its file was' : 'their files were'} deleted.`);
+    if (notes.length || !quiet) patternMessage(notes.join(' ') || `Patterns are in step with “${folder.handle.name}”.`);
+  } catch (err) { folderLost(err); }
+}
+async function allowFolder(ask) {
+  const opts = { mode: 'readwrite' };
+  let perm = 'denied';
+  try {
+    perm = await folder.handle.queryPermission(opts);
+    if (perm !== 'granted' && ask) perm = await folder.handle.requestPermission(opts);
+  } catch (err) { folderLost(err); return; }
+  folder.ready = perm === 'granted';
+  folder.problem = folder.ready ? '' : 'access';
+  renderFolder();
+  if (folder.ready) await runFolderSync(!ask);
+}
+async function pickFolder() {
+  let handle;
+  try { handle = await window.showDirectoryPicker({ id: 'crescent-patterns', mode: 'readwrite' }); }
+  catch (err) { if (err.name === 'AbortError') return; throw err; }
+  folder = { handle, tag: newPatternId(), ready: true, problem: '' };
+  await metaSet('folder', { handle, tag: folder.tag });
+  renderFolder();
+  await runFolderSync(true);
+  if (folder.ready) patternMessage(`Every pattern is now saved as a file in “${handle.name}”.`);
+}
+async function stopFolder() {
+  const name = folder.handle.name;
+  folder = null;
+  folderFiles.clear();
+  await metaSet('folder', undefined);
+  await metaSet('deleted', undefined);
+  renderFolder();
+  patternMessage(`Stopped saving to “${name}”. The files stay there, and your patterns stay in this browser.`);
+}
+function renderFolder() {
+  const box = $('pat-folder');
+  box.hidden = !canUseFolder || !patternsReady || $('pat-save').disabled;
+  if (box.hidden) return;
+  const name = folder ? `“${folder.handle.name}”` : '';
+  $('folder-state').classList.toggle('error', !!folder && !folder.ready);
+  $('folder-state').textContent = !folder ? 'Keep each pattern as a file in a folder you choose, to back up, sync or share.'
+    : folder.ready ? `Saving patterns as files in ${name}.`
+    : folder.problem === 'missing' ? `The folder ${name} cannot be found. It may have been moved or renamed. Patterns are saved in this browser until you choose it again.`
+    : `The browser needs your OK to keep saving to ${name}. Until then, patterns are saved in this browser only.`;
+  $('folder-pick').textContent = folder ? 'Change folder…' : 'Save to a folder…';
+  $('folder-allow').hidden = !folder || folder.ready || folder.problem === 'missing';
+  $('folder-stop').hidden = !folder;
+}
+async function startFolder() {
+  if (!canUseFolder || $('pat-save').disabled) return renderFolder();
+  const saved = await metaGet('folder').catch(() => null);
+  if (saved?.handle) {
+    folder = { handle: saved.handle, tag: saved.tag, ready: false, problem: '' };
+    await allowFolder(false);
+  }
+  renderFolder();
+}
+async function refreshPatterns() {
+  patterns = await patternStore('readonly', store => store.getAll());
+  patterns.sort((a, b) => b.savedAt - a.savedAt);
+  renderPatterns();
+}
+const currentPattern = () => patterns.find(p => p.id === state.patternId) || null;
+const findByName = name => patterns.find(p => p.name.toLowerCase() === name.trim().toLowerCase()) || null;
+function nextPatternName() {
+  let n = patterns.length + 1;
+  while (findByName('Pattern ' + n)) n++;
+  return 'Pattern ' + n;
+}
+// What makes two patterns the same. The selected shape, guides and play state do not count.
+const patternSignature = settings => JSON.stringify({ ...settings, assets: 0, active: 0, playing: 0, guides: 0, patternId: 0 });
+function setBaseline(rec) {
+  patternBaseline = rec ? patternSignature(normaliseState(copyOf(rec.settings))) : null;
+}
+function patternMessage(text, undo, isError) {
+  const msg = $('pat-msg');
+  msg.classList.toggle('error', !!isError);
+  msg.hidden = !text;
+  msg.textContent = text || '';
+  if (undo) {
+    msg.append(el('button', { type: 'button', onclick: () => { patternMessage(''); undo().catch(showPatternError); } }, 'Undo'));
+  }
+}
+const showPatternError = err => patternMessage(err.message || 'That did not work. Your patterns have not changed.', null, true);
+function syncPatternUi() {
+  if (!patternsReady) return;
+  $('pat-save').textContent = findByName($('pat-name').value) ? 'Update' : 'Save new';
+  $('pat-export').disabled = !patterns.length;
+  const current = currentPattern();
+  $('pat-state').textContent = !current ? 'These settings are not saved as a pattern yet.'
+    : patternSignature(state) === patternBaseline ? `Saved as ${current.name}.`
+    : `${current.name} has unsaved changes.`;
+}
+function renderPatterns() {
+  $('pat-list').replaceChildren(...patterns.map(p => el('div', { class: 'pat-row' },
+    el('button', {
+      class: 'layer-main', type: 'button', title: 'Load ' + p.name, 'aria-current': String(p.id === state.patternId),
+      onclick: () => loadPattern(p).catch(showPatternError),
+    },
+      el('img', { src: p.thumb || '', alt: '' }),
+      el('span', { class: 'pat-text' },
+        el('b', {}, p.name),
+        el('small', {}, new Date(p.savedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })))),
+    el('button', {
+      class: 'pat-del', type: 'button', title: 'Delete ' + p.name, 'aria-label': 'Delete ' + p.name,
+      onclick: () => deletePattern(p).catch(showPatternError),
+    }, '\u00d7'))));
+  syncPatternUi();
+}
+function patternThumb() {
+  const art = $('art'), w = 96, h = 64;
+  const canvas = el('canvas', { width: w, height: h });
+  const k = Math.max(w / art.width, h / art.height);
+  draw();
+  canvas.getContext('2d').drawImage(art, (w - art.width * k) / 2, (h - art.height * k) / 2, art.width * k, art.height * k);
+  return canvas.toDataURL('image/jpeg', .85);
+}
+async function savePattern() {
+  const name = $('pat-name').value.trim() || nextPatternName();
+  const previous = findByName(name);
+  const used = state.assets.filter(a => state.shapes.some(s => s.type === 'custom' && s.assetId === a.id));
+  const rec = {
+    id: previous ? previous.id : 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    name, savedAt: Date.now(), time, thumb: patternThumb(),
+    settings: copyOf({ ...state, assets: used, patternId: '' }),
+  };
+  await putPattern(rec);
+  navigator.storage?.persist?.().catch(() => {});
+  state.patternId = rec.id;
+  $('pat-name').value = name;
+  setBaseline(rec);
+  await refreshPatterns();
+  writeAutosave();
+  if (previous) {
+    patternMessage(`Updated ${name}.`, async () => {
+      await putPattern(previous);
+      setBaseline(previous);
+      await refreshPatterns();
+      patternMessage(`${name} is back to its earlier version.`);
+    });
+  } else patternMessage(`Saved ${name}.`);
+}
+// Replaces the current settings. Other uploads stay available in the shape picker.
+async function applySettings(settings, patternId, savedTime) {
+  const next = normaliseState(copyOf(settings));
+  const known = new Set(next.assets.map(a => a.id));
+  for (const a of state.assets) if (!known.has(a.id)) next.assets.push(a);
+  await Promise.all(next.assets.filter(a => !assets.has(a.id)).map(a => registerAsset(a).catch(() => {})));
+  next.shapes = next.shapes.filter(s => s.type !== 'custom' || assets.has(s.assetId));
+  next.active = clamp(next.active, 0, Math.max(next.shapes.length - 1, 0));
+  next.patternId = patternId || '';
+  state = next;
+  time = savedTime || 0;
+  setBaseline(currentPattern());
+  renderPatterns();
+  syncAll(); resize(); requestDraw(); writeAutosave();
+}
+async function loadPattern(p) {
+  const before = copyOf(state), beforeTime = time, beforeName = $('pat-name').value;
+  await applySettings(p.settings, p.id, p.time);
+  $('pat-name').value = p.name;
+  syncPatternUi();
+  patternMessage(`Loaded ${p.name}.`, async () => {
+    await applySettings(before, before.patternId, beforeTime);
+    $('pat-name').value = beforeName;
+    syncPatternUi();
+    patternMessage('Back to your previous settings.');
+  });
+}
+async function deletePattern(p) {
+  const wasCurrent = state.patternId === p.id;
+  await removePattern(p.id);
+  if (wasCurrent) { state.patternId = ''; setBaseline(null); writeAutosave(); }
+  await refreshPatterns();
+  patternMessage(`Deleted ${p.name}.`, async () => {
+    await putPattern(p);
+    await refreshPatterns();
+    if (wasCurrent) { state.patternId = p.id; setBaseline(p); writeAutosave(); renderPatterns(); }
+    patternMessage(`${p.name} is back.`);
+  });
+}
+function downloadPatternBackup() {
+  const stamp = new Date().toISOString().slice(0, 10);
+  download(new Blob([JSON.stringify({ app: 'crescent-field', version: 1, patterns })], { type: 'application/json' }),
+    `crescent-field-patterns_${stamp}.json`);
+  patternMessage(`Backup of ${patterns.length} pattern${patterns.length === 1 ? '' : 's'} downloaded.`);
+}
+// Takes backup files and single pattern files; several can be chosen at once.
+async function importPatternBackup(files) {
+  const raws = [];
+  let unreadable = 0;
+  for (const file of files) {
+    let data = null;
+    try { data = JSON.parse(await file.text()); } catch {}
+    if (data?.app === 'crescent-field' && Array.isArray(data.patterns)) raws.push(...data.patterns);
+    else if (data?.app === 'crescent-field' && data.pattern) raws.push(data.pattern);
+    else unreadable++;
+  }
+  if (!raws.length) throw new Error(files.length === 1 ? 'That file is not a Crescent Field backup or pattern.' : 'None of those files are Crescent Field backups or patterns.');
+  let added = 0, same = 0, skipped = 0;
+  for (const raw of raws) {
+    const clean = cleanRecord(raw);
+    if (!clean) { skipped++; continue; }
+    const existing = patterns.find(p => p.id === raw.id);
+    if (existing && patternSignature(normaliseState(copyOf(existing.settings))) === patternSignature(clean.settings)) { same++; continue; }
+    // A different pattern with the same name is kept alongside, never written over.
+    const base = clean.name.slice(0, 34);
+    let name = base;
+    for (let n = 2; findByName(name); n++) name = `${base} (${n})`;
+    const rec = { ...clean, name, id: existing || typeof raw.id !== 'string' ? newPatternId() : clean.id };
+    patterns.push(await putPattern(rec));
+    added++;
+  }
+  skipped += unreadable;
+  await refreshPatterns();
+  const notes = [`Added ${added} pattern${added === 1 ? '' : 's'}.`];
+  if (same) notes.push(`${same} already here.`);
+  if (skipped) notes.push(`${skipped} could not be read.`);
+  patternMessage(notes.join(' '), null, !added && !same);
+}
+$('pat-save').addEventListener('click', () => savePattern().catch(showPatternError));
+$('pat-name').addEventListener('input', syncPatternUi);
+$('pat-name').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); savePattern().catch(showPatternError); }
+});
+$('pat-export').addEventListener('click', downloadPatternBackup);
+$('pat-import').addEventListener('click', () => $('pat-file').click());
+$('pat-file').addEventListener('change', e => {
+  const files = [...e.target.files];
+  e.target.value = '';
+  if (files.length) importPatternBackup(files).catch(showPatternError);
+});
+$('folder-pick').addEventListener('click', () => pickFolder().catch(showPatternError));
+$('folder-allow').addEventListener('click', () => allowFolder(true).catch(showPatternError));
+$('folder-stop').addEventListener('click', () => stopFolder().catch(showPatternError));
+// Picks up patterns added or changed in the folder, for example by a sync service, when the app comes back into view.
+document.addEventListener('visibilitychange', () => { if (!document.hidden) runFolderSync(true); });
+async function startPatterns() {
+  try {
+    await refreshPatterns();
+    setBaseline(currentPattern());
+    $('pat-name').value = currentPattern()?.name || nextPatternName();
+  } catch {
+    patternMessage('This browser window cannot store patterns. Your current settings still autosave.', null, true);
+    $('pat-save').disabled = true;
+  }
+  patternsReady = true;
+  renderPatterns();
+  await startFolder().catch(showPatternError);
+}
+
+function download(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = el('a', { href: url, download: name });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function outputSize(format) {
+  const short = format === 'gif' ? Math.min(state.outSize, 720) : state.outSize;
+  const even = v => Math.max(2, Math.round(v / 2) * 2);
+  return viewW >= viewH
+    ? { w: even(short * viewW / viewH), h: even(short) }
+    : { w: even(short), h: even(short * viewH / viewW) };
+}
+function exportCanvas(w, h) {
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  return { canvas, target: canvas.getContext('2d', { willReadFrequently: false }) };
+}
+function stillSize() {
+  const long = state.stillLong;
+  return viewW >= viewH
+    ? { w: long, h: Math.max(1, Math.round(long * viewH / viewW)) }
+    : { w: Math.max(1, Math.round(long * viewW / viewH)), h: long };
+}
+function syncStillInfo(message, isError) {
+  const info = $('still-info');
+  if (!info || !viewW) return;
+  info.classList.toggle('error', !!isError);
+  if (message) { info.textContent = message; return; }
+  const { w, h } = stillSize();
+  info.textContent = `PNG will be ${w} x ${h} px, redrawn from the vector at that size. Save PNG and Save SVG use the frame on screen.`;
+}
+// Re-renders the vector at full size. The browser may refuse a huge canvas without raising an error, so it is checked.
+async function saveStillPNG() {
+  if (exporting) return;
+  const { w, h } = stillSize();
+  exporting = true;
+  $('busy').classList.add('on');
+  $('busy-text').textContent = `Rendering PNG at ${w} x ${h} px`;
+  $('busy-bar').removeAttribute('value');
+  $('busy-cancel').hidden = true;
+  await new Promise(r => setTimeout(r, 30));
+  let result = null, error = null;
+  try {
+    const { canvas, target } = exportCanvas(w, h);
+    if (!target || canvas.width !== w || canvas.height !== h) throw new Error('too large');
+    const pxScale = w / viewW;
+    paint(target, pxScale, state.transparent);
+    if (!state.transparent && target.getImageData(0, 0, 1, 1).data[3] === 0) throw new Error('too large');
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+    if (!blob) throw new Error('too large');
+    canvas.width = canvas.height = 1;
+    result = { blob, name: `crescent-field_${w}x${h}.png` };
+  } catch (err) {
+    error = err;
+  }
+  exporting = false;
+  $('busy').classList.remove('on');
+  $('busy-bar').value = 0;
+  $('busy-cancel').hidden = false;
+  if (error) syncStillInfo(`This browser could not make a ${w} x ${h} px image. Lower PNG long side and try again.`, true);
+  else {
+    download(result.blob, result.name);
+    syncStillInfo(`Saved ${result.name}, ${(result.blob.size / 1048576).toFixed(1)} MB.`);
+  }
+  return result;
+}
+$('save-png').addEventListener('click', saveStillPNG);
+// The crescent as absolute cubic curves: [startX, startY, then six numbers per curve].
+const GLYPH_CURVES = (() => {
+  const tokens = GLYPH_D.match(/[a-zA-Z]|-?\d*\.?\d+/g);
+  const out = [];
+  let i = 0, cmd = '', x = 0, y = 0, cx2 = 0, cy2 = 0;
+  const num = () => parseFloat(tokens[i++]);
+  while (i < tokens.length) {
+    if (/[a-zA-Z]/.test(tokens[i])) cmd = tokens[i++];
+    if (cmd === 'Z' || cmd === 'z') continue;
+    const rel = cmd === cmd.toLowerCase(), ox = rel ? x : 0, oy = rel ? y : 0;
+    const type = cmd.toUpperCase();
+    if (type === 'M') {
+      x = num() + ox; y = num() + oy;
+      out.push(x, y);
+    } else {
+      let x1, y1;
+      if (type === 'C') { x1 = num() + ox; y1 = num() + oy; }
+      else if (type === 'S') { x1 = 2 * x - cx2; y1 = 2 * y - cy2; }
+      else throw new Error('Unsupported path command ' + cmd);
+      cx2 = num() + ox; cy2 = num() + oy;
+      const ex = num() + ox, ey = num() + oy;
+      out.push(x1, y1, cx2, cy2, ex, ey);
+      x = ex; y = ey;
+    }
+  }
+  return out;
+})();
+
+// Every crescent is written as a plain path with its own coordinates, because design tools
+// differ in how they read shared definitions and <use> references.
+function buildSVG() {
+  const W = Math.round(viewW), H = Math.round(viewH);
+  const n = v => +v.toFixed(3);
+  const paths = [];
+  forEachGlyph(viewW, viewH, (a, b, c, d, e, f) => {
+    let data = '';
+    for (let i = 0; i < GLYPH_CURVES.length; i += 2) {
+      const px = GLYPH_CURVES[i], py = GLYPH_CURVES[i + 1];
+      if (i === 0) data += 'M';
+      else if (i === 2) data += 'C';
+      else data += ' ';
+      data += n(a * px + c * py + e) + ' ' + n(b * px + d * py + f);
+    }
+    paths.push(`<path d="${data}Z"/>`);
+  });
+  return `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">\n` +
+    (state.transparent ? '' : `<rect x="0" y="0" width="${W}" height="${H}" fill="${state.bg}"/>\n`) +
+    `<g fill="${state.fg}">\n${paths.join('\n')}\n</g>\n</svg>\n`;
+}
+$('save-svg').addEventListener('click', () => {
+  download(new Blob([buildSVG()], { type: 'image/svg+xml' }), 'crescent-field.svg');
+});
+
+/* ---------- Motion export ---------- */
+function concat(parts) {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+// Minimal MP4 writer: one H.264 track, constant frame rate, index first so it streams.
+function muxMP4({ samples, description, w, h, fps }) {
+  const enc = new TextEncoder();
+  const u32 = (...v) => { const a = new Uint8Array(v.length * 4), d = new DataView(a.buffer); v.forEach((x, i) => d.setUint32(i * 4, x)); return a; };
+  const u16 = (...v) => { const a = new Uint8Array(v.length * 2), d = new DataView(a.buffer); v.forEach((x, i) => d.setUint16(i * 2, x)); return a; };
+  const zero = n => new Uint8Array(n);
+  const box = (type, ...parts) => { const body = concat(parts); return concat([u32(body.length + 8), enc.encode(type), body]); };
+  const matrix = u32(0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x40000000);
+  const timescale = fps * 1000, delta = 1000, n = samples.length, duration = n * delta;
+  const moov = chunkOffset => box('moov',
+    box('mvhd', u32(0, 0, 0, timescale, duration, 0x10000), u16(0x0100, 0), zero(8), matrix, zero(24), u32(2)),
+    box('trak',
+      box('tkhd', u32(3, 0, 0, 1, 0, duration), zero(8), u16(0, 0, 0, 0), matrix, u32(w * 65536, h * 65536)),
+      box('mdia',
+        box('mdhd', u32(0, 0, 0, timescale, duration), u16(0x55c4, 0)),
+        box('hdlr', u32(0, 0), enc.encode('vide'), zero(12), enc.encode('VideoHandler\0')),
+        box('minf',
+          box('vmhd', u32(1), zero(8)),
+          box('dinf', box('dref', u32(0, 1), box('url ', u32(1)))),
+          box('stbl',
+            box('stsd', u32(0, 1), box('avc1',
+              zero(6), u16(1), zero(16), u16(w, h), u32(0x480000, 0x480000, 0), u16(1), zero(32), u16(24, 0xffff),
+              box('avcC', new Uint8Array(description)),
+              box('colr', enc.encode('nclx'), u16(1, 1, 1), new Uint8Array([0])))),
+            box('stts', u32(0, 1, n, delta)),
+            box('stss', u32(0, samples.filter(s => s.key).length, ...samples.flatMap((s, i) => s.key ? [i + 1] : []))),
+            box('stsz', u32(0, 0, n, ...samples.map(s => s.data.length))),
+            box('stsc', u32(0, 1, 1, n, 1)),
+            box('stco', u32(0, 1, chunkOffset)))))));
+  const ftyp = box('ftyp', enc.encode('isom'), u32(512), enc.encode('isomiso2avc1mp41'));
+  const offset = ftyp.length + moov(0).length + 8;
+  const mdatSize = samples.reduce((t, s) => t + s.data.length, 0) + 8;
+  return new Blob([ftyp, moov(offset), u32(mdatSize), enc.encode('mdat'), ...samples.map(s => s.data)], { type: 'video/mp4' });
+}
+
+async function pickH264(w, h, fps, bitrate) {
+  if (typeof VideoEncoder === 'undefined') return null;
+  for (const codec of ['avc1.640034', 'avc1.4D0034', 'avc1.42E034']) {
+    const config = { codec, width: w, height: h, bitrate, framerate: fps, avc: { format: 'avc' }, latencyMode: 'quality' };
+    try { if ((await VideoEncoder.isConfigSupported(config)).supported) return config; } catch {}
+  }
+  return null;
+}
+
+async function exportMP4({ w, h, fps, n, renderFrame }) {
+  const config = await pickH264(w, h, fps, Math.round(w * h * fps * .2));
+  if (!config) throw new Error(`This browser cannot encode H.264 at ${w} x ${h}. Try a smaller size.`);
+  const samples = [];
+  let description = null, failure = null;
+  const encoder = new VideoEncoder({
+    output(chunk, meta) {
+      if (meta?.decoderConfig?.description) description = meta.decoderConfig.description;
+      const data = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(data);
+      samples.push({ data, key: chunk.type === 'key' });
+    },
+    error(err) { failure = err; },
+  });
+  encoder.configure(config);
+  try {
+    for (let f = 0; f < n; f++) {
+      if (failure) throw failure;
+      const canvas = await renderFrame(f);
+      if (!canvas) return null;
+      const frame = new VideoFrame(canvas, { timestamp: Math.round(f * 1e6 / fps), duration: Math.round(1e6 / fps) });
+      encoder.encode(frame, { keyFrame: f % (fps * 2) === 0 });
+      frame.close();
+      while (encoder.encodeQueueSize > 4) await new Promise(r => setTimeout(r, 2));
+    }
+    await encoder.flush();
+    if (failure) throw failure;
+  } finally {
+    if (encoder.state !== 'closed') encoder.close();
+  }
+  if (!description || samples.length !== n) throw new Error('The video encoder did not return every frame.');
+  return { blob: muxMP4({ samples, description, w, h, fps }), name: 'crescent-field.mp4' };
+}
+
+// Used only where the browser has no H.264 encoder. It records in real time.
+async function exportWebM({ fps, n, renderFrame, canvas }) {
+  const type = ['video/webm;codecs=vp9', 'video/webm'].find(t => MediaRecorder.isTypeSupported(t));
+  if (!type) throw new Error('This browser cannot record video. Try GIF or PNG sequence.');
+  const stream = canvas.captureStream(0);
+  const recorder = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: Math.round(canvas.width * canvas.height * fps * .2) });
+  const parts = [];
+  recorder.ondataavailable = e => { if (e.data.size) parts.push(e.data); };
+  const stopped = new Promise(r => { recorder.onstop = r; });
+  recorder.start();
+  const start = performance.now();
+  for (let f = 0; f < n; f++) {
+    if (!(await renderFrame(f))) { recorder.stop(); return null; }
+    stream.getVideoTracks()[0].requestFrame();
+    await new Promise(r => setTimeout(r, Math.max(0, start + (f + 1) * 1000 / fps - performance.now())));
+  }
+  recorder.stop();
+  await stopped;
+  return { blob: new Blob(parts, { type: 'video/webm' }), name: 'crescent-field.webm' };
+}
+
+// Two colours make every pixel a shade between them, so a small ramp palette stays exact.
+function gifEncoder(w, h, delay, bg, fg) {
+  const parts = [];
+  const le16 = v => [v & 255, v >> 8 & 255];
+  const SHADES = 32, MIN_CODE = 5;
+  const rgb = hex => { const n = parseInt(hex.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+  const B = rgb(bg), F = rgb(fg), D = [F[0] - B[0], F[1] - B[1], F[2] - B[2]];
+  const len = D[0] * D[0] + D[1] * D[1] + D[2] * D[2] || 1;
+  const palette = [];
+  for (let i = 0; i < SHADES; i++) for (let c = 0; c < 3; c++) palette.push(Math.round(B[c] + D[c] * i / (SHADES - 1)));
+  parts.push(new TextEncoder().encode('GIF89a'), new Uint8Array([...le16(w), ...le16(h), 0xF0 | 4, 0, 0, ...palette,
+    0x21, 0xFF, 11, ...new TextEncoder().encode('NETSCAPE2.0'), 3, 1, 0, 0, 0]));
+  const table = new Int32Array(4096 * SHADES);
+  return {
+    add(rgba) {
+      const count = w * h, idx = new Uint8Array(count);
+      for (let i = 0, p = 0; i < count; i++, p += 4) {
+        const t = ((rgba[p] - B[0]) * D[0] + (rgba[p + 1] - B[1]) * D[1] + (rgba[p + 2] - B[2]) * D[2]) / len;
+        idx[i] = t <= 0 ? 0 : t >= 1 ? SHADES - 1 : Math.round(t * (SHADES - 1));
+      }
+      parts.push(new Uint8Array([0x21, 0xF9, 4, 0, ...le16(delay), 0, 0, 0x2C, 0, 0, 0, 0, ...le16(w), ...le16(h), 0, MIN_CODE]));
+      // LZW, packed into 255-byte sub-blocks.
+      const clear = 1 << MIN_CODE, eoi = clear + 1;
+      const out = new Uint8Array(count * 2 + 1024);
+      let o = 0, block = o++, cur = 0, bits = 0, size = MIN_CODE + 1, next = eoi + 1;
+      const emit = code => {
+        cur |= code << bits; bits += size;
+        while (bits >= 8) {
+          out[o++] = cur & 255; cur >>>= 8; bits -= 8;
+          if (o - block - 1 === 255) { out[block] = 255; block = o++; }
+        }
+      };
+      table.fill(-1);
+      emit(clear);
+      let prefix = idx[0];
+      for (let i = 1; i < count; i++) {
+        const k = idx[i], key = prefix * SHADES + k, hit = table[key];
+        if (hit >= 0) { prefix = hit; continue; }
+        emit(prefix);
+        if (next === 4096) {
+          emit(clear); table.fill(-1); next = eoi + 1; size = MIN_CODE + 1;
+        } else {
+          if (next >= 1 << size) size++;
+          table[key] = next++;
+        }
+        prefix = k;
+      }
+      emit(prefix);
+      emit(eoi);
+      if (bits > 0) {
+        out[o++] = cur & 255;
+        if (o - block - 1 === 255) { out[block] = 255; block = o++; }
+      }
+      out[block] = o - block - 1;
+      if (out[block] > 0) out[o++] = 0; else o = block + 1, out[block] = 0;
+      parts.push(out.slice(0, o));
+    },
+    finish() { return new Blob([...parts, new Uint8Array([0x3B])], { type: 'image/gif' }); },
+  };
+}
+
+// ZIP with no compression: PNGs are already compressed, and this keeps it fast.
+const crcTable = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+  return t;
+})();
+function crc32(bytes) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) c = crcTable[(c ^ bytes[i]) & 255] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function zipStore(files) {
+  const enc = new TextEncoder();
+  const head = (size, write) => { const a = new Uint8Array(size); write(new DataView(a.buffer)); return a; };
+  const parts = [], central = [];
+  let offset = 0;
+  for (const { name, data } of files) {
+    const nm = enc.encode(name), crc = crc32(data);
+    const shared = (d, o) => {
+      d.setUint16(o, 20, true); d.setUint16(o + 2, 0x0800, true); d.setUint16(o + 4, 0, true);
+      d.setUint16(o + 6, 0, true); d.setUint16(o + 8, 0x21, true);
+      d.setUint32(o + 10, crc, true); d.setUint32(o + 14, data.length, true); d.setUint32(o + 18, data.length, true);
+      d.setUint16(o + 22, nm.length, true);
+    };
+    const local = head(30, d => { d.setUint32(0, 0x04034b50, true); shared(d, 4); });
+    central.push(head(46, d => {
+      d.setUint32(0, 0x02014b50, true); d.setUint16(4, 20, true); shared(d, 6);
+      d.setUint32(42, offset, true);
+    }), nm);
+    parts.push(local, nm, data);
+    offset += local.length + nm.length + data.length;
+  }
+  const size = central.reduce((t, p) => t + p.length, 0);
+  const end = head(22, d => {
+    d.setUint32(0, 0x06054b50, true);
+    d.setUint16(8, files.length, true); d.setUint16(10, files.length, true);
+    d.setUint32(12, size, true); d.setUint32(16, offset, true);
+  });
+  return new Blob([...parts, ...central, end], { type: 'application/zip' });
+}
+
+let h264Available = true, exportCancelled = false;
+function motionPlan() {
+  const format = state.format;
+  const { w, h } = outputSize(format);
+  let fps = state.fps, delay = 0;
+  if (format === 'gif') { delay = Math.round(100 / fps); fps = 100 / delay; }
+  return { format, w, h, fps, delay, n: Math.max(2, Math.round(state.loop * fps)) };
+}
+function syncExportInfo(message, isError) {
+  if (!message) syncStillInfo();
+  const info = $('export-info'), go = $('export-go');
+  if (!info || !viewW) return;
+  go.disabled = !hasMotion();
+  info.classList.toggle('error', !!isError);
+  if (message) { info.textContent = message; return; }
+  if (!state.motionOn) { info.textContent = 'Switch Motion on to export a loop. Save PNG and Save SVG still export the current frame.'; return; }
+  if (!hasMotion()) { info.textContent = 'Turn on a Motion setting such as Travel, Ripple, Beat or Texture wave to export a loop.'; return; }
+  const p = motionPlan();
+  const rate = p.format === 'gif' ? `${+p.fps.toFixed(1)} fps` : `${p.fps} fps`;
+  info.textContent = `${p.w} x ${p.h}, ${p.n} frames at ${rate}, ${state.loop} s seamless loop.` +
+    (p.format === 'gif' && state.outSize > 720 ? ' GIF is capped at 720.' : '');
+}
+
+async function exportMotion() {
+  if (exporting || !hasMotion()) return;
+  const plan = motionPlan();
+  const { format, w, h, fps, delay, n } = plan;
+  const { canvas, target } = exportCanvas(w, h);
+  const transparent = format === 'png' && state.transparent;
+  const keepTime = time;
+  exporting = true;
+  exportCancelled = false;
+  $('busy').classList.add('on');
+  $('busy-bar').value = 0;
+  $('busy-cancel').focus();
+
+  const renderFrame = async f => {
+    if (exportCancelled) return null;
+    time = f / n * state.loop;
+    paint(target, w / viewW, transparent);
+    $('busy-bar').value = f / n;
+    $('busy-text').textContent = `Exporting frame ${f + 1} of ${n}`;
+    await new Promise(r => setTimeout(r));
+    return canvas;
+  };
+
+  let result = null, error = null;
+  try {
+    if (format === 'mp4') {
+      result = h264Available
+        ? await exportMP4({ w, h, fps, n, renderFrame })
+        : await exportWebM({ fps, n, renderFrame, canvas });
+    } else if (format === 'gif') {
+      const gif = gifEncoder(w, h, delay, state.bg, state.fg);
+      let done = true;
+      for (let f = 0; f < n; f++) {
+        if (!(await renderFrame(f))) { done = false; break; }
+        gif.add(target.getImageData(0, 0, w, h).data);
+      }
+      if (done) result = { blob: gif.finish(), name: 'crescent-field.gif' };
+    } else {
+      const files = [];
+      let done = true;
+      for (let f = 0; f < n; f++) {
+        if (!(await renderFrame(f))) { done = false; break; }
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+        if (!blob) throw new Error('The browser ran out of memory making a PNG. Try a smaller size.');
+        files.push({ name: `crescent-field_${String(f + 1).padStart(4, '0')}.png`, data: new Uint8Array(await blob.arrayBuffer()) });
+      }
+      if (done) result = { blob: zipStore(files), name: 'crescent-field_png-sequence.zip' };
+    }
+  } catch (err) {
+    error = err;
+  }
+  time = keepTime;
+  exporting = false;
+  $('busy').classList.remove('on');
+  $('export-go').focus();
+  draw();
+  if (error) syncExportInfo(error.message || 'The export failed.', true);
+  else if (result) {
+    download(result.blob, result.name);
+    syncExportInfo(`Saved ${result.name}, ${(result.blob.size / 1048576).toFixed(1)} MB.`);
+  } else syncExportInfo('Export cancelled.');
+  return result;
+}
+$('export-go').addEventListener('click', exportMotion);
+$('busy-cancel').addEventListener('click', () => { exportCancelled = true; });
+
+/* ---------- Start ---------- */
+state.active = clamp(state.active, 0, Math.max(state.shapes.length - 1, 0));
+syncAll();
+new ResizeObserver(resize).observe(stage);
+resize();
+requestAnimationFrame(tick);
+// Saved uploads decode asynchronously; shapes show as circles for that moment.
+Promise.all(state.assets.map(a => registerAsset(a).catch(() => {}))).then(() => { syncAll(); requestDraw(); });
+startPatterns();
+// Lets the app be installed and opened without a connection. Not available when opened as a plain file.
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
+pickH264(1920, 1080, 30, 12000000).then(config => {
+  h264Available = !!config;
+  if (!config) [...document.querySelectorAll('#export-controls button')].find(b => b.textContent === 'MP4').textContent = 'WebM';
+});
+</script>
+</body>
+</html>
