@@ -257,7 +257,9 @@
   .swatch svg { display: block; width: 100%; height: 100%; }
 
   /* Saved patterns */
-  .pat-save { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+  .pat-save { display: grid; gap: 6px; }
+  .pat-buttons { display: flex; gap: 6px; }
+  .pat-buttons .btn { flex: 1; }
   .pat-name { width: 100%; height: 26px; padding: 0 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--raised); font-size: 12px; }
   #pat-state, #pat-msg { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
   #pat-msg { color: var(--text); }
@@ -403,7 +405,10 @@
       <h2 id="h-patterns">Saved patterns</h2>
       <div class="pat-save">
         <input class="pat-name" id="pat-name" maxlength="40" placeholder="Pattern name" aria-label="Pattern name" spellcheck="false" autocomplete="off">
-        <button class="btn small" id="pat-save" type="button" title="Save (Cmd or Ctrl + S)">Save new</button>
+        <div class="pat-buttons">
+          <button class="btn small" id="pat-save" type="button" title="Save these settings as a new pattern">Save new</button>
+          <button class="btn small" id="pat-update" type="button" hidden>Update</button>
+        </div>
       </div>
       <p id="pat-state" role="status"></p>
       <p id="pat-msg" role="status" hidden></p>
@@ -2074,7 +2079,7 @@ const folderJob = job => (folderJobs = folderJobs.catch(() => {}).then(job));
 const folderUsable = () => !!folder?.ready;
 
 function patternFileText(rec) {
-  const { file, folderTag, ...pattern } = rec;
+  const { file, folderTag, missingFrom, ...pattern } = rec;
   return JSON.stringify({ app: 'crescent-field', kind: 'pattern', version: 1, pattern });
 }
 function patternFileName(rec) {
@@ -2094,6 +2099,7 @@ async function writePatternFile(rec, name = patternFileName(rec)) {
   folderFiles.set(name.toLowerCase(), rec.id);
   rec.file = name;
   rec.folderTag = folder.tag;
+  delete rec.missingFrom;
 }
 async function deletePatternFile(rec) {
   if (!rec.file || rec.folderTag !== folder.tag) return;
@@ -2138,28 +2144,33 @@ function cleanRecord(raw) {
   };
 }
 async function readFolder() {
-  const found = [];
+  const found = [], unreadable = [];
   for await (const [name, handle] of folder.handle.entries()) {
     if (handle.kind !== 'file' || !name.toLowerCase().endsWith(PATTERN_EXT)) continue;
     try {
       const data = JSON.parse(await (await handle.getFile()).text());
       const rec = data?.app === 'crescent-field' && cleanRecord(data.pattern);
-      if (rec) found.push({ name, rec });
-    } catch { /* Not a pattern file: leave it alone. */ }
+      if (rec) found.push({ name, rec }); else unreadable.push(name);
+    } catch { unreadable.push(name); } // Half-synced, damaged or not a pattern: leave it alone.
   }
-  return found;
+  return { found, unreadable };
 }
 // Brings the browser copy and the folder into line. The folder wins when it has a newer version.
 async function syncFolder() {
-  const found = await readFolder();
+  const { found, unreadable } = await readFolder();
   folderFiles = new Map(found.map(f => [f.name.toLowerCase(), f.rec.id]));
   const stored = await patternStore('readonly', store => store.getAll());
+  // A file that cannot be read still exists, so its pattern was not deleted and its name is not free.
+  const unread = new Set(unreadable.map(name => name.toLowerCase()));
+  for (const name of unread) folderFiles.set(name, '');
+  const stillThere = p => p.file && p.folderTag === folder.tag && unread.has(p.file.toLowerCase());
+  for (const p of stored) if (stillThere(p)) folderFiles.set(p.file.toLowerCase(), p.id);
   const byId = new Map(stored.map(p => [p.id, p]));
   const deleted = new Set(await metaGet('deleted') || []);
   const names = new Set(stored.map(p => p.name.toLowerCase()));
   const seen = new Set();
   const put = rec => patternStore('readwrite', store => store.put(rec));
-  let added = 0, removed = 0;
+  let added = 0, missing = 0;
   for (const { name, rec } of found) {
     if (deleted.has(rec.id)) {
       await deletePatternFile({ ...rec, file: name, folderTag: folder.tag });
@@ -2170,7 +2181,7 @@ async function syncFolder() {
       seen.add(rec.id);
       if (mine.savedAt > rec.savedAt) await writePatternFile(mine, name);
       else if (mine.savedAt < rec.savedAt) Object.assign(mine, rec);
-      mine.file = name; mine.folderTag = folder.tag;
+      mine.file = name; mine.folderTag = folder.tag; delete mine.missingFrom;
       await put(mine);
       continue;
     }
@@ -2188,18 +2199,22 @@ async function syncFolder() {
     added++;
   }
   for (const mine of stored) {
-    if (seen.has(mine.id)) continue;
+    if (seen.has(mine.id) || stillThere(mine)) continue;
     if (mine.folderTag === folder.tag && mine.file) {
-      // It was in this folder and its file has gone, so it was deleted outside the app.
-      await patternStore('readwrite', store => store.delete(mine.id));
-      removed++;
-    } else {
+      // Its file has gone: deleted, moved or not synced yet. The pattern stays here, and
+      // its file is only written again when it is next saved, so a deliberate delete sticks.
+      delete mine.file;
+      mine.missingFrom = folder.tag;
+      await put(mine);
+      missing++;
+    } else if (mine.missingFrom !== folder.tag) {
       await writePatternFile(mine);
       await put(mine);
     }
   }
-  if (deleted.size) await metaSet('deleted', []);
-  return { added, removed };
+  // An unreadable file may be one of these, so remember them until every file can be read.
+  if (deleted.size && !unreadable.length) await metaSet('deleted', []);
+  return { added, missing };
 }
 function folderLost(err) {
   if (!folder) return;
@@ -2210,13 +2225,13 @@ function folderLost(err) {
 async function runFolderSync(quiet) {
   if (!folderUsable()) return;
   try {
-    const { added, removed } = await folderJob(syncFolder);
+    const { added, missing } = await folderJob(syncFolder);
     await refreshPatterns();
     setBaseline(currentPattern());
     syncPatternUi();
     const notes = [];
     if (added) notes.push(`${added} new pattern${added === 1 ? '' : 's'} found in the folder.`);
-    if (removed) notes.push(`${removed} removed because ${removed === 1 ? 'its file was' : 'their files were'} deleted.`);
+    if (missing) notes.push(`${missing} pattern${missing === 1 ? ' is' : 's are'} no longer in the folder, so ${missing === 1 ? 'it was' : 'they were'} kept here.`);
     if (notes.length || !quiet) patternMessage(notes.join(' ') || `Patterns are in step with “${folder.handle.name}”.`);
   } catch (err) { folderLost(err); }
 }
@@ -2238,6 +2253,8 @@ async function pickFolder() {
   catch (err) { if (err.name === 'AbortError') return; throw err; }
   folder = { handle, tag: newPatternId(), ready: true, problem: '' };
   await metaSet('folder', { handle, tag: folder.tag });
+  // Deletions waiting for an earlier folder must never remove files from this one.
+  await metaSet('deleted', undefined);
   renderFolder();
   await runFolderSync(true);
   if (folder.ready) patternMessage(`Every pattern is now saved as a file in “${handle.name}”.`);
@@ -2256,9 +2273,10 @@ function renderFolder() {
   box.hidden = !canUseFolder || !patternsReady || $('pat-save').disabled;
   if (box.hidden) return;
   const name = folder ? `“${folder.handle.name}”` : '';
+  const gone = folder ? patterns.filter(p => p.missingFrom === folder.tag).length : 0;
   $('folder-state').classList.toggle('error', !!folder && !folder.ready);
   $('folder-state').textContent = !folder ? 'Keep each pattern as a file in a folder you choose, to back up, sync or share.'
-    : folder.ready ? `Saving patterns as files in ${name}.`
+    : folder.ready ? `Saving patterns as files in ${name}.` + (gone ? ` ${gone} ${gone === 1 ? 'has' : 'have'} no file there. To write one again, load the pattern and click Update.` : '')
     : folder.problem === 'missing' ? `The folder ${name} cannot be found. It may have been moved or renamed. Patterns are saved in this browser until you choose it again.`
     : `The browser needs your OK to keep saving to ${name}. Until then, patterns are saved in this browser only.`;
   $('folder-pick').textContent = folder ? 'Change folder…' : 'Save to a folder…';
@@ -2278,6 +2296,7 @@ async function refreshPatterns() {
   patterns = await patternStore('readonly', store => store.getAll());
   patterns.sort((a, b) => b.savedAt - a.savedAt);
   renderPatterns();
+  renderFolder();
 }
 const currentPattern = () => patterns.find(p => p.id === state.patternId) || null;
 const findByName = name => patterns.find(p => p.name.toLowerCase() === name.trim().toLowerCase()) || null;
@@ -2303,7 +2322,10 @@ function patternMessage(text, undo, isError) {
 const showPatternError = err => patternMessage(err.message || 'That did not work. Your patterns have not changed.', null, true);
 function syncPatternUi() {
   if (!patternsReady) return;
-  $('pat-save').textContent = findByName($('pat-name').value) ? 'Update' : 'Save new';
+  // Save new is always there. Update joins it when the name belongs to a saved pattern.
+  const named = findByName($('pat-name').value);
+  $('pat-update').hidden = !named;
+  $('pat-update').title = named ? `Replace ${named.name} with these settings (Cmd or Ctrl + S)` : '';
   $('pat-export').disabled = !patterns.length;
   const current = currentPattern();
   $('pat-state').textContent = !current ? 'These settings are not saved as a pattern yet.'
@@ -2334,8 +2356,19 @@ function patternThumb() {
   canvas.getContext('2d').drawImage(art, (w - art.width * k) / 2, (h - art.height * k) / 2, art.width * k, art.height * k);
   return canvas.toDataURL('image/jpeg', .85);
 }
-async function savePattern() {
-  const name = $('pat-name').value.trim() || nextPatternName();
+// A name that is free: the one given, or the same with a number after it.
+function freeName(name) {
+  if (!findByName(name)) return name;
+  if (/^Pattern \d+$/i.test(name)) return nextPatternName();
+  const base = name.replace(/ \(\d+\)$/, '').slice(0, 34);
+  let n = 2;
+  while (findByName(`${base} (${n})`)) n++;
+  return `${base} (${n})`;
+}
+// As new, it never touches an existing pattern. Otherwise it updates the pattern with that name, if there is one.
+async function savePattern(asNew) {
+  const typed = $('pat-name').value.trim() || nextPatternName();
+  const name = asNew ? freeName(typed) : findByName(typed)?.name || typed;
   const previous = findByName(name);
   const used = state.assets.filter(a => state.shapes.some(s => s.type === 'custom' && s.assetId === a.id));
   const rec = {
@@ -2437,7 +2470,8 @@ async function importPatternBackup(files) {
   if (skipped) notes.push(`${skipped} could not be read.`);
   patternMessage(notes.join(' '), null, !added && !same);
 }
-$('pat-save').addEventListener('click', () => savePattern().catch(showPatternError));
+$('pat-save').addEventListener('click', () => savePattern(true).catch(showPatternError));
+$('pat-update').addEventListener('click', () => savePattern().catch(showPatternError));
 $('pat-name').addEventListener('input', syncPatternUi);
 $('pat-name').addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); savePattern().catch(showPatternError); }

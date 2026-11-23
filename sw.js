@@ -1,6 +1,6 @@
 // Keeps Crescent Field working offline once it has been opened.
 // Change VERSION whenever any file below changes, so installed copies pick up the update.
-const VERSION = 'crescent-field-20261112-102504';
+const VERSION = 'crescent-field-20261123-112122';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', event => {
